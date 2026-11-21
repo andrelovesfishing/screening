@@ -167,8 +167,8 @@ class CustomerResolver:
             for n in self.s.notes_by_email.get(e, []):
                 if (n.get("channel") or "").lower() == "kyc":
                     checks.append(parse_kyc_note(n))
-                elif _LIVED.search(n.get("text", "")):
-                    for c in countries_in(n["text"]):
+                else:  # inclusive on purpose: a country we miss could cause an unsafe LOCATION clear
+                    for c in countries_in(n.get("text", "")):
                         lived.append(Fact(c, (n["note_id"],)))
         checks = [c for c in checks if c[0]]
         if checks:
@@ -220,20 +220,29 @@ _LIVED = re.compile(r"\b(lived|living|live|resid\w*|reside\w*|work\w*|employ\w*|
 _CAPS_NAME = re.compile(r"\b([A-Z][A-Z'\-\.]+(?:\s+[A-Z][A-Z'\-\.]+)+)\b")
 
 
+_NOT_NAME = {"DOB", "ID", "KYC", "UK", "USA", "US", "EU", "NIN", "BVN", "SSN", "PEP", "N/A", "NA", "AML"}
+_BIRTH_KW = re.compile(r"(born|dob|d\.o\.b|birth|birthdate)", re.I)
+
+
 def parse_kyc_note(n: dict):
     """An onboarding-team note recording an approved identity check."""
     text = n.get("text", "")
     created = parse_date(n.get("created_at", ""))
-    m = _CAPS_NAME.search(text)
-    name = m.group(1) if m else ""
+    name = ""
+    for m in _CAPS_NAME.finditer(text):
+        toks = [t for t in m.group(1).split() if t.strip(".-'") not in _NOT_NAME]
+        if len(toks) >= 2:
+            name = " ".join(toks)
+            break
+    dates = [(s0, d) for s0, _, d in find_dates(text) if d.month and d.day
+             and not (created and (d.year, d.month, d.day) == (created.year, created.month, created.day))
+             and (not created or d.year <= created.year - 10)]
     dob = None
-    for _, _, d in find_dates(text):
-        if d.month and d.day and created and (d.year, d.month, d.day) == (created.year, created.month, created.day):
-            continue
-        if not d.month:  # bare years are not DOBs
-            continue
-        dob = d
-        break
+    kws = [m.end() for m in _BIRTH_KW.finditer(text)]
+    if dates and kws:  # the date closest after (or else nearest) a birth keyword
+        dob = min(dates, key=lambda t: min((t[0] - k) if t[0] >= k else 10_000 + (k - t[0]) for k in kws))[1]
+    elif len(dates) == 1:
+        dob = dates[0][1]
     cs = countries_in(text)
     return (created, name, dob, cs[0] if cs else None, n["note_id"])
 
@@ -320,7 +329,8 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
     dobs = [Fact(d, (hid,)) for d in (parse_date(v) for v in as_list(hit.get("dobs"))) if d]
     origin = "dobs field" if dobs else ""
     notes = hit.get("profile_notes") or ""
-    if not dobs:
+    n_field = len(dobs)
+    if True:  # inclusive on purpose: an extra possible birth date can only block a DOB clear
         first = notes.strip().split("\n\n")[0] if notes.strip() else ""
         for sent in re.split(r"(?<=[.!?])\s+", first):
             if re.search(r"\bborn\b", sent):
@@ -334,8 +344,8 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
             if age and at:
                 dobs.append(Fact(age_to_years(age, at), (hid,)))
                 break
-        if dobs:
-            origin = "profile notes"
+        if len(dobs) > n_field:
+            origin = "dobs field and profile notes" if n_field else "profile notes"
     if not dobs:
         q = " ".join(sorted(fold(hit.get("name") or "").split()))
         hit_cs = {c.value for c in countries}
