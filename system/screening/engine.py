@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from .data import Store
 from .facts import CustomerResolver, hit_profile
 from .rules import Outcome, decide
@@ -15,18 +17,44 @@ class Engine:
         self.resolver = CustomerResolver(self.store, self.nr)
 
     def run(self):
-        for alert in sorted(self.store.alerts, key=lambda a: a["alert_id"]):
-            persons, rtrace = self.resolver.resolve(alert)
-            profiles = [self.resolver.profile(p, alert) for p in persons]
-            if not profiles:
-                profiles = [self.resolver.screened_only(alert)]
-            for hid in self.store.hit_ids(alert):
+        """One row per hit in hits.jsonl, always. Anything that fails on one hit (or its alert) gives that
+        hit a REVIEW row instead of stopping the run: when in doubt, REVIEW. Errors go to stderr only,
+        so the output stays byte-identical run to run."""
+        done = set()
+        by_alert: dict = {}
+        for hid, h in self.store.hits.items():
+            by_alert.setdefault(h.get("alert_id"), []).append(hid)
+        for alert in sorted(self.store.alerts, key=lambda a: str(a.get("alert_id"))):
+            aid = alert.get("alert_id")
+            hids = list(dict.fromkeys(self.store.hit_ids(alert) + sorted(by_alert.get(aid, []))))
+            try:
+                persons, rtrace = self.resolver.resolve(alert)
+                profiles = [self.resolver.profile(p, alert) for p in persons]
+                if not profiles:
+                    profiles = [self.resolver.screened_only(alert)]
+            except Exception as e:  # noqa: BLE001 - one bad alert must not sink the file
+                _warn(aid, e)
+                persons = None
+            for hid in hids:
                 hit = self.store.hits.get(hid)
-                if hit is None:
+                if hit is None or hid in done:
                     continue
-                hp = hit_profile(self.store, hit)
-                outs = [decide(p, hp, alert, self.nr) for p in profiles]
-                yield self._combine(alert, hid, persons, profiles, outs, rtrace, hp)
+                done.add(hid)
+                if persons is None:
+                    yield fallback(hid, hit.get("alert_id") or aid, "its customer could not be resolved")
+                    continue
+                try:
+                    hp = hit_profile(self.store, hit)
+                    outs = [decide(p, hp, alert, self.nr) for p in profiles]
+                    row = self._combine(alert, hid, persons, profiles, outs, rtrace, hp)
+                    row["alert_id"] = hit.get("alert_id") or row["alert_id"]
+                    yield row
+                except Exception as e:  # noqa: BLE001
+                    _warn(hid, e)
+                    yield fallback(hid, hit.get("alert_id") or aid, "its records could not be read")
+        for hid in sorted(self.store.hits):
+            if hid not in done:
+                yield fallback(hid, self.store.hits[hid].get("alert_id"), "no alert lists it")
 
     def _combine(self, alert, hid, persons, profiles, outs: list[Outcome], rtrace, hp) -> dict:
         if len(outs) > 1:
@@ -62,3 +90,16 @@ class Engine:
         }
         return {"hit_id": hid, "alert_id": alert["alert_id"], "decision": decision, "reason_code": code,
                 "customer_record_id": rid, "evidence": evidence, "reason": reason, "_trace": trace}
+
+
+def fallback(hid: str, aid, why: str) -> dict:
+    """The safe answer when a hit cannot be decided automatically."""
+    return {"hit_id": hid, "alert_id": aid, "decision": "REVIEW", "reason_code": "INSUFFICIENT_DATA",
+            "customer_record_id": None, "evidence": [],
+            "reason": f"This hit was not decided automatically because {why}. "
+                      "Nothing has been checked for or against it, so a person should review it.",
+            "_trace": {"fallback": why}}
+
+
+def _warn(where, e: Exception) -> None:
+    print(f"warning: {where}: {type(e).__name__}: {e} -> REVIEW", file=sys.stderr)

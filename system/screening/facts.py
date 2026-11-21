@@ -52,6 +52,11 @@ class HitProfile:
     unread_dobs: list[str] = field(default_factory=list)
     trace: list[str] = field(default_factory=list)
 
+    @property
+    def label(self) -> str:
+        """How reasons name the hit: its first name, or its ID when it has none."""
+        return self.names[0] if self.names else self.hit_id
+
 
 _COMPANY_TYPES = {"company", "organisation", "organization", "entity", "business", "corporation", "corporate",
                   "legal entity", "legal person", "firm", "partnership", "trust", "fund", "llc"}

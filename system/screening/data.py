@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import re
+import sys
 from collections import defaultdict
 
 from .text import as_list, fold, parse_date
@@ -45,10 +46,30 @@ def _flat(v) -> str:
     return str(v)
 
 
+class Rec(dict):
+    """A record whose absent fields read as "" (the same as a null), so a missing field in unseen
+    data is "unknown" rather than a crash."""
+
+    def __missing__(self, key):
+        return ""
+
+
+def _jsonl(path: str) -> list:
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for n, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                print(f"warning: {os.path.basename(path)} line {n} is not JSON; skipped", file=sys.stderr)
+    return rows
+
+
 def _read_any(path: str) -> list[dict]:
     if path.endswith(".jsonl"):
-        with open(path, encoding="utf-8") as f:
-            rows = [json.loads(l) for l in f if l.strip()]
+        rows = _jsonl(path)
     elif path.endswith(".json"):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
@@ -62,7 +83,7 @@ def _read_any(path: str) -> list[dict]:
 def _flatten_record(r: dict) -> dict:
     """Nested objects (e.g. an alert's `customer: {name, dob, ...}`) are lifted to the top level
     as `<parent>_<key>` and, where free, as `<key>`, so `customer.name` is `customer_name`."""
-    out = {k: _flat(v) for k, v in r.items()}
+    out = Rec({k: _flat(v) for k, v in r.items()})
     for k, v in r.items():
         if isinstance(v, dict):
             for sub, x in v.items():
@@ -137,6 +158,27 @@ def _load_variants(folder: str) -> tuple[list[list[str]], list[str]]:
     return groups, forms
 
 
+_JUNK_KEYS = {"", "na", "n/a", "none", "null", "unknown", "unk", "tbc", "tba", "test", "x", "xx", "xxx", "-", "0"}
+
+
+def join_key(v) -> str:
+    """A value usable to link records, or "" if it is blank or a placeholder. Linking on a shared blank
+    or placeholder (a missing applicant ID, document number "N/A", phone "000000") would merge strangers
+    into one person (principle 3) and mix their facts."""
+    s = str(v or "").strip()
+    if s.lower() in _JUNK_KEYS:
+        return ""
+    core = re.sub(r"[^0-9A-Za-z]", "", s)
+    if not core or len(set(core)) == 1:  # "000000", "XXXXXX"
+        return ""
+    return s
+
+
+def phone_key(v) -> str:
+    d = re.sub(r"\D", "", str(v or ""))
+    return d if len(d) >= 7 and len(set(d)) > 1 else ""
+
+
 class Store:
     def __init__(self, folder: str):
         self.folder = folder
@@ -161,8 +203,11 @@ class Store:
         self.acc_by_login = defaultdict(list)
         self.acc_by_customer = defaultdict(list)
         for a in self.accounts:
-            self.acc_by_id[a["account_id"]].append(a)
-            if a.get("login_handle"):
+            if not join_key(a["customer_id"]):
+                continue
+            if join_key(a["account_id"]):
+                self.acc_by_id[a["account_id"]].append(a)
+            if join_key(a.get("login_handle")):
                 self.acc_by_login[a["login_handle"].lower()].append(a)
             self.acc_by_customer[a["customer_id"]].append(a)
         self.cust_by_email = defaultdict(list)
@@ -171,13 +216,13 @@ class Store:
         self.cust_by_year = defaultdict(list)
         self.cust_by_part = defaultdict(set)
         for c in self.customers.values():
-            if c.get("email"):
+            if join_key(c.get("email")):
                 self.cust_by_email[c["email"].lower()].append(c["record_id"])
-            if c.get("login_name"):
+            if join_key(c.get("login_name")):
                 self.cust_by_login[c["login_name"].lower()].append(c["record_id"])
             d = parse_date(c.get("dob", ""))
-            if c.get("phone") and d and d.month and d.day:
-                self.cust_by_phone_dob[(re.sub(r"\D", "", c["phone"]), d)].append(c["record_id"])
+            if phone_key(c.get("phone")) and d and d.month and d.day:
+                self.cust_by_phone_dob[(phone_key(c["phone"]), d)].append(c["record_id"])
             if d:
                 self.cust_by_year[d.year].append(c["record_id"])
             for field in ("full_name", "preferred_name", "login_name"):
@@ -185,16 +230,19 @@ class Store:
                     if len(p) >= 2:
                         self.cust_by_part[p].add(c["record_id"])
         self.applicants_by_customer = defaultdict(list)
-        for o in self.onboarding:
+        onboarding = [o for o in self.onboarding if join_key(o["customer_id"]) and join_key(o["kyc_applicant_id"])]
+        for o in onboarding:
             self.applicants_by_customer[o["customer_id"]].append(o["kyc_applicant_id"])
         self.kyc_by_applicant = defaultdict(list)
         self.customers_by_docnum = defaultdict(set)
         cust_by_applicant = defaultdict(set)
-        for o in self.onboarding:
+        for o in onboarding:
             cust_by_applicant[o["kyc_applicant_id"]].add(o["customer_id"])
         for k in self.kyc:
+            if not join_key(k["applicant_id"]):
+                continue
             self.kyc_by_applicant[k["applicant_id"]].append(k)
-            if k.get("result") == "approved" and k.get("document_number"):
+            if k.get("result") == "approved" and join_key(k.get("document_number")):
                 for cid in cust_by_applicant.get(k["applicant_id"], ()):
                     self.customers_by_docnum[k["document_number"].strip().upper()].add(cid)
         self.notes_by_email = defaultdict(list)

@@ -178,7 +178,7 @@ def rule_type(x: Ctx):
     if is_company(x.h.entity_type) != x.company:
         kind = lambda b: "a company" if b else "a person"
         return Outcome("DIFFERENT_ENTITY", "ENTITY_TYPE_MISMATCH", _src(x.records),
-                       f"The customer is {kind(x.company)} but the hit {x.h.names[0]} is {kind(is_company(x.h.entity_type))}."
+                       f"The customer is {kind(x.company)} but the hit {x.h.label} is {kind(is_company(x.h.entity_type))}."
                        " A person and a company cannot be the same entity, so no other check can change this.")
 
 
@@ -187,7 +187,7 @@ def rule_deceased(x: Ctx):
     screened = parse_date(x.alert.get("screened_at", ""))
     if d and screened and d.value.latest_ordinal() < screened.earliest_ordinal():
         return Outcome("DIFFERENT_ENTITY", "DECEASED", _src(x.records),
-                       f"The hit {x.h.names[0]} died in {d.value.text()}, before the customer was screened on {screened.text()}."
+                       f"The hit {x.h.label} died in {d.value.text()}, before the customer was screened on {screened.text()}."
                        + _other(x))
 
 
@@ -279,7 +279,7 @@ def agreement(x: Ctx) -> Outcome:
     need = "name and country to agree" if x.company else "name and date of birth to agree"
     agreeing = _src(*sc, x.p.dob if dm else None, exclude=x.h.hit_id) or _src(nm[0] if nm else None) or _src(x.records)
     return Outcome("REVIEW", "INSUFFICIENT_DATA", agreeing,
-                   f"No fact contradicts the hit {x.h.names[0]}, but nothing confirms it either."
+                   f"No fact contradicts the hit {x.h.label}, but nothing confirms it either."
                    f" Checked: {_checks(x)}."
                    f" Confirming needs {need}, so a person should review it.")
 
