@@ -230,7 +230,8 @@ def parse_kyc_note(n: dict):
     created = parse_date(n.get("created_at", ""))
     name = ""
     for m in _CAPS_NAME.finditer(text):
-        toks = [t for t in m.group(1).split() if t.strip(".-'") not in _NOT_NAME]
+        toks = [t.strip(".-'’") for t in m.group(1).split()]
+        toks = [t for t in toks if t and t not in _NOT_NAME]
         if len(toks) >= 2:
             name = " ".join(toks)
             break
@@ -279,7 +280,7 @@ DEFAULT_PHRASE = "named on a watchlist"
 _AGE = re.compile(
     r"\b(?:aged|age of|at age|age)\s+(\d{1,3})\b"
     r"|\b(\d{1,3})[\s-]*(?:years?|yrs?)[\s-]*(?:of age|old)\b"
-    r"|\breached\s+(\d{1,3})\b|\b(?:then|at)\s+(\d{1,3})\b(?![:.]\d)"
+    r"|\b(?:reached|turned|turning)\s+(\d{1,3})\b|\b(?:then|at)\s+(\d{1,3})\b(?![:.]\d)"
     r"|\b(?:he|she|they|who|was|were|is)\s+(?:was\s+|were\s+|is\s+)?(?:then\s+)?(\d{1,3})\b(?!\s*(?:%|percent|million|people|times))"
     r"|,\s*(\d{1,3}),")
 _REPORT = re.compile(r"^\s*According to .+?;\s*([^;:]{3,40}?)\s*:")
@@ -335,8 +336,8 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
     if True:  # inclusive on purpose: an extra possible birth date can only block a DOB clear
         first = notes.strip().split("\n\n")[0] if notes.strip() else ""
         for sent in re.split(r"(?<=[.!?])\s+", first):
-            if re.search(r"\bborn\b", sent):
-                after = sent[re.search(r"\bborn\b", sent).end():]
+            if re.search(r"\bborn\b", sent, re.I):
+                after = sent[re.search(r"\bborn\b", sent, re.I).end():]
                 d = parse_date(after)
                 if d:
                     dobs.append(Fact(d, (hid,)))

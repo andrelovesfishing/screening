@@ -77,14 +77,14 @@ MONTHS["sept"] = 9
 _MON = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 
 _DATE_PATTERNS = [
-    # 2024-03-05, 2024-3-5, 2024-03
-    (re.compile(r"\b(\d{4})-(\d{1,2})(?:-(\d{1,2}))?\b"), lambda m: (m[1], m[2], m[3])),
-    # 05/03/2024 (day first: UK data)
-    (re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b"), lambda m: (m[3], m[2], m[1])),
-    # March 5, 2024 / March 05 2024
-    (re.compile(rf"\b({_MON})\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})\b", re.I), lambda m: (m[3], m[1], m[2])),
-    # 5 March 2024 / 5th of March, 2024
-    (re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?({_MON}),?\s+(\d{{4}})\b", re.I), lambda m: (m[3], m[2], m[1])),
+    # 2024-03-05, 2024-3-5, 2024-03, 2024/03/05, 2024.03.05
+    (re.compile(r"\b(\d{4})([-/.])(\d{1,2})(?:\2(\d{1,2}))?\b"), lambda m: (m[1], m[3], m[4])),
+    # 05/03/2024, 05.03.2024, 05-03-2024 (day first: UK data)
+    (re.compile(r"\b(\d{1,2})([/.-])(\d{1,2})\2(\d{4})\b"), lambda m: (m[4], m[3], m[1])),
+    # March 5, 2024 / March 05 2024 / May-5-2024
+    (re.compile(rf"\b({_MON})[\s-]+(\d{{1,2}})(?:st|nd|rd|th)?,?[\s-]+(\d{{4}})\b", re.I), lambda m: (m[3], m[1], m[2])),
+    # 5 March 2024 / 5th of March, 2024 / 3-May-1970
+    (re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?[\s-]+(?:of\s+)?({_MON}),?[\s-]+(\d{{4}})\b", re.I), lambda m: (m[3], m[2], m[1])),
     # March 2024 / March, 2024
     (re.compile(rf"\b({_MON}),?\s+(\d{{4}})\b", re.I), lambda m: (m[2], m[1], None)),
     # bare year
@@ -129,6 +129,8 @@ def parse_date(s: str) -> D | None:
     s = (s or "").strip()
     if not s:
         return None
+    if re.fullmatch(r"(1[89]|20)\d{6}", s):  # 19700503, only as a whole field value
+        return _mk(s[:4], s[4:6], s[6:])
     found = find_dates(s)
     return found[0][2] if found else None
 
@@ -214,6 +216,24 @@ _ALIASES = {
     "Nigerien": "Niger", "Bahraini": "Bahrain", "Qatari": "Qatar", "Kuwaiti": "Kuwait", "Omani": "Oman",
     "Yemeni": "Yemen", "Libyan": "Libya", "Tunisian": "Tunisia", "Algerian": "Algeria", "Taiwanese": "Taiwan",
 }
+_ISO3 = {
+    "USA": "United States", "GBR": "United Kingdom", "NGA": "Nigeria", "DEU": "Germany", "ESP": "Spain",
+    "FRA": "France", "ITA": "Italy", "BGD": "Bangladesh", "IRL": "Ireland", "POL": "Poland", "IND": "India",
+    "CAN": "Canada", "AUS": "Australia", "NLD": "Netherlands", "KEN": "Kenya", "AUT": "Austria", "PAK": "Pakistan",
+    "BRA": "Brazil", "MEX": "Mexico", "PRT": "Portugal", "SWE": "Sweden", "NOR": "Norway", "DNK": "Denmark",
+    "FIN": "Finland", "CHE": "Switzerland", "BEL": "Belgium", "ZAF": "South Africa", "GHA": "Ghana",
+    "ARE": "United Arab Emirates", "CHN": "China", "JPN": "Japan", "RUS": "Russia", "TUR": "Turkey",
+    "SGP": "Singapore", "NZL": "New Zealand", "ARG": "Argentina", "COL": "Colombia", "PER": "Peru",
+    "CHL": "Chile", "VEN": "Venezuela", "EGY": "Egypt", "MAR": "Morocco", "UKR": "Ukraine", "ROU": "Romania",
+    "GRC": "Greece", "HUN": "Hungary", "CZE": "Czech Republic", "SRB": "Serbia", "HRV": "Croatia",
+    "JAM": "Jamaica", "PHL": "Philippines", "MYS": "Malaysia", "THA": "Thailand", "VNM": "Vietnam",
+    "IDN": "Indonesia", "LKA": "Sri Lanka", "NPL": "Nepal", "AFG": "Afghanistan", "IRN": "Iran", "IRQ": "Iraq",
+    "SYR": "Syria", "LBN": "Lebanon", "JOR": "Jordan", "SAU": "Saudi Arabia", "ISR": "Israel", "SOM": "Somalia",
+    "ETH": "Ethiopia", "UGA": "Uganda", "TZA": "Tanzania", "ZWE": "Zimbabwe", "CMR": "Cameroon", "SEN": "Senegal",
+    "SDN": "Sudan", "ERI": "Eritrea", "KOR": "South Korea", "PRK": "North Korea", "HKG": "Hong Kong", "MAC": "Macao",
+    "CIV": "Cote D'Ivoire", "LUX": "Luxembourg", "ISL": "Iceland", "EST": "Estonia", "LVA": "Latvia",
+    "LTU": "Lithuania", "ALB": "Albania", "QAT": "Qatar", "KWT": "Kuwait", "BHR": "Bahrain", "OMN": "Oman",
+}
 NOT_COUNTRIES = {"international", "europe", "global", "worldwide", "africa", "asia", "unknown", "n a", "na"}
 
 _CANON = {fold(c): c for c in COUNTRIES}
@@ -237,6 +257,8 @@ def country(value: str) -> str | None:
             return _CANON[f]
         if len(cand) == 2 and cand.upper() in _ALIASES:
             return _ALIASES[cand.upper()]
+        if cand.upper() in _ISO3:  # whole-value only: 'CAN' in free text is a word, not Canada
+            return _ISO3[cand.upper()]
     found = countries_in(last)
     return found[0] if found else None
 
