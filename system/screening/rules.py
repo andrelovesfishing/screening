@@ -36,8 +36,19 @@ def _src(*facts, exclude: str = "") -> list[str]:
 
 
 def dob_contradicted(c: D, h: D) -> bool:
-    """Principle 6: the customer's birth year is more than 1 year outside every year this date
-    could be, or same year with a differing month (or day)."""
+    """Principle 6, for every reading of an ambiguous numeric date: contradicted only if all
+    combinations are (a clear needs both readings to give it)."""
+    return all(_contradicted(a, b) for a in c.readings() for b in h.readings())
+
+
+def dob_agrees(c: D, h: D) -> bool:
+    """Principle 7, for any reading of an ambiguous numeric date."""
+    return any(_agrees(a, b) for a in c.readings() for b in h.readings())
+
+
+def _contradicted(c: D, h: D) -> bool:
+    """The customer's birth year is more than 1 year outside every year this date could be,
+    or same year with a differing month (or day)."""
     if all(abs(c.year - y) > 1 for y in h.years):
         return True
     if c.year in h.years and len(h.years) == 1:
@@ -48,7 +59,7 @@ def dob_contradicted(c: D, h: D) -> bool:
     return False
 
 
-def dob_agrees(c: D, h: D) -> bool:
+def _agrees(c: D, h: D) -> bool:
     """Principle 7: birth year is one of the hit's possible years and every shared part is equal."""
     if c.year not in h.years:
         return False
@@ -195,13 +206,14 @@ def rule_temporal(x: Ctx):
     r, dob = x.h.earliest_report, x.p.dob
     if not r or not dob:
         return None
+    readings = dob.value.readings()
     if x.company:
-        if dob.value.earliest_ordinal() > r.value.latest_ordinal():
+        if all(d.earliest_ordinal() > r.value.latest_ordinal() for d in readings):
             return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
                            f"The customer company was incorporated on {dob.value.text()}, after the hit's earliest dated report ({r.value.text()})."
                            + _other(x, "dob"))
         return None
-    if _plus_years(dob.value, 16) > r.value.latest_ordinal():
+    if all(_plus_years(d, 16) > r.value.latest_ordinal() for d in readings):
         return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
                        f"The customer was born on {dob.value.text()} ({', '.join(dob.sources)}), so was younger than 16 at the hit's earliest dated report ({r.value.text()})."
                        + _other(x, "dob"))

@@ -331,6 +331,9 @@ _AGE = re.compile(
     r"|\b(?:he|she|they|who|was|were|is)\s+(?:was\s+|were\s+|is\s+)?(?:then\s+)?(\d{1,3})" + _NOT_DAY
     + r"\b(?!\s*(?:%|percent|million|people|times))"
     r"|,\s*(\d{1,3})" + _NOT_DAY + r",")
+# Principle 5 birth-date sentences: "born", and the other ways a profile states a date of birth.
+_HIT_BIRTH = re.compile(r"\b(?:born|date of birth|year of birth|birth\s?date|birth\s?year|dob|came into the world)\b",
+                        re.I)
 _REPORT = re.compile(r"^\s*According to .+?;\s*([^;:]{3,40}?)\s*:")
 
 
@@ -394,9 +397,11 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
     person_hit = not is_company(hit.get("entity_type"))
     if person_hit:  # inclusive on purpose: an extra possible birth date can only block a DOB clear
         first = notes.strip().split("\n\n")[0] if notes.strip() else ""
+        first = re.sub(r"\bD\.\s?O\.\s?B\.?", "DOB", first, flags=re.I)  # so the sentence split keeps it whole
         for sent in re.split(r"(?<=[.!?])\s+", first):
-            if re.search(r"\bborn\b", sent, re.I):
-                after = sent[re.search(r"\bborn\b", sent, re.I).end():]
+            m = _HIT_BIRTH.search(sent)
+            if m:
+                after = sent[m.end():]
                 d = parse_date(after)
                 if d:
                     dobs.append(Fact(d, (hid,)))

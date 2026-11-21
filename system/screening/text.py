@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 # ---------------------------------------------------------------- normalising
@@ -45,12 +45,20 @@ class D:
     years: tuple[int, ...]
     month: int | None = None
     day: int | None = None
+    # A numeric date like 06/10/1962 can be read day-first or month-first. We read day-first (UK data)
+    # but keep the other reading, so a clear that rests on the date needs both readings to give it.
+    ambiguous: bool = field(default=False, compare=False)
 
     @property
     def year(self) -> int:
         return self.years[0]
 
-    def text(self) -> str:
+    def readings(self) -> list["D"]:
+        if self.ambiguous and self.month and self.day:
+            return [self, D(self.years, self.day, self.month)]
+        return [self]
+
+    def _plain(self) -> str:
         if len(self.years) > 1:
             return " or ".join(str(y) for y in self.years)
         out = f"{self.year:04d}"
@@ -59,6 +67,11 @@ class D:
             if self.day:
                 out += f"-{self.day:02d}"
         return out
+
+    def text(self) -> str:
+        if len(self.readings()) > 1:
+            return f"{self._plain()} (or {self.readings()[1]._plain()} if read month-first)"
+        return self._plain()
 
     def latest_ordinal(self) -> tuple[int, int, int]:
         """Latest calendar point this date could mean (for 'certainly before' tests)."""
@@ -79,8 +92,11 @@ _MON = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug
 _DATE_PATTERNS = [
     # 2024-03-05, 2024-3-5, 2024-03, 2024/03/05, 2024.03.05
     (re.compile(r"\b(\d{4})([-/.])(\d{1,2})(?:\2(\d{1,2}))?\b"), lambda m: (m[1], m[3], m[4])),
-    # 05/03/2024, 05.03.2024, 05-03-2024 (day first: UK data)
-    (re.compile(r"\b(\d{1,2})([/.-])(\d{1,2})\2(\d{4})\b"), lambda m: (m[4], m[3], m[1])),
+    # 05/03/2024, 05.03.2024, 05-03-2024: day first (UK data); month first when day first is impossible
+    # (6/20/1955); both readings kept when both are possible and differ (06/10/1962)
+    (re.compile(r"\b(\d{1,2})([/.-])(\d{1,2})\2(\d{4})\b"),
+     lambda m: (m[4], m[1], m[3]) if int(m[3]) > 12 >= int(m[1])
+     else (m[4], m[3], m[1], int(m[1]) <= 12 and int(m[3]) <= 12 and m[1].lstrip("0") != m[3].lstrip("0"))),
     # March 5, 2024 / March 05 2024 / May-5-2024
     (re.compile(rf"\b({_MON})[\s-]+(\d{{1,2}})(?:st|nd|rd|th)?,?[\s-]+(\d{{4}})\b", re.I), lambda m: (m[3], m[1], m[2])),
     # 5 March 2024 / 5th of March, 2024 / 3-May-1970
@@ -92,7 +108,7 @@ _DATE_PATTERNS = [
 ]
 
 
-def _mk(y, mo, d) -> D | None:
+def _mk(y, mo, d, ambiguous=False) -> D | None:
     try:
         y = int(y)
         if isinstance(mo, str) and not mo.isdigit():
@@ -107,7 +123,7 @@ def _mk(y, mo, d) -> D | None:
         return None
     if not 1800 <= y <= 2100:
         return None
-    return D((y,), mo, d)
+    return D((y,), mo, d, bool(ambiguous))
 
 
 def find_dates(text: str) -> list[tuple[int, int, D]]:

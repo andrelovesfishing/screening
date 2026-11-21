@@ -262,6 +262,64 @@ class AuditFindings(unittest.TestCase):
         self.assertEqual(hp.dobs, [])
 
 
+def _hp(notes, entity="Individual", dobs=()):
+    from screening.facts import hit_profile
+
+    class _S:
+        search_by_query = {}
+    return hit_profile(_S(), {"hit_id": "H-9", "entity_type": entity, "name": "Ahmed Khan",
+                              "profile_notes": notes, "dobs": list(dobs)})
+
+
+class BirthPhrasings(unittest.TestCase):
+    """1a: hit DOB wordings beyond "born" (principle 5: a sentence in the first paragraph)."""
+
+    def test_phrasings_are_read(self):
+        for text, years in [
+            ("The date of birth of Ahmed Khan is the 17th of July 1939.", (1939,)),
+            ("The year of birth for Ahmed Khan is 1952.", (1952,)),
+            ("Ahmed Khan came into the world in 1966 in Lagos.", (1966,)),
+            ("DOB: 30/06/1969. Listed by OFAC.", (1969,)),
+            ("Ahmed Khan (D.O.B. 3 March 1950) was listed.", (1950,)),
+            ("Birth date 1971-02-01; nationality Pakistani.", (1971,)),
+        ]:
+            self.assertEqual([d.value.years for d in _hp(text).dobs], [years], text)
+
+    def test_place_of_birth_is_not_a_date(self):
+        self.assertEqual(_hp("Place of birth: Lagos. Listed in 2019.").dobs, [])
+
+    def test_unread_phrasing_triggers_the_guard(self):
+        hp = _hp("The date of birth of Ahmed Khan is on file as the seventeenth of July.")
+        self.assertEqual(hp.dobs, [])
+        self.assertTrue(hp.unread_dobs)
+
+
+class SlashDates(unittest.TestCase):
+    """1b: numeric dates. Day first (UK data); month first when day first is impossible;
+    when both readings are possible, a clear that rests on the date needs both readings to give it."""
+
+    def test_month_first_when_day_first_impossible(self):
+        self.assertEqual(parse_date("6/20/1955").text(), "1955-06-20")
+
+    def test_ambiguous_keeps_both_readings(self):
+        d = parse_date("06/10/1962")
+        self.assertEqual([r._plain() for r in d.readings()], ["1962-10-06", "1962-06-10"])
+        self.assertEqual(len(parse_date("05/05/1995").readings()), 1)  # both readings are the same date
+        self.assertEqual(len(parse_date("1962-06-10").readings()), 1)  # ISO is never ambiguous
+
+    def test_dob_clear_needs_both_readings(self):
+        # Customer 06/10/1962 could be 10 June: agrees with a hit born June 1962, so no DOB clear.
+        p = person(dob="06/10/1962", countries=())
+        self.assertNotEqual(decide(p, hit(dobs=("1962-06",), countries=()), ALERT, NR).code, "DOB_MISMATCH")
+        self.assertEqual(decide(p, hit(dobs=("1962-03",), countries=()), ALERT, NR).code, "DOB_MISMATCH")
+
+    def test_temporal_clear_needs_both_readings(self):
+        h = hit(dobs=())
+        h.earliest_report = Fact(parse_date("2023-07-01"), ("H-1",))
+        # 01/12/2007 is 1 Dec 2007 (under 16 on 1 Jul 2023) or 12 Jan 2007 (16 by then): no clear.
+        self.assertNotEqual(decide(person(dob="01/12/2007"), h, ALERT, NR).code, "TEMPORAL_IMPOSSIBILITY")
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)
