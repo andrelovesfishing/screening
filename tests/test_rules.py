@@ -369,6 +369,16 @@ class TerseWording(unittest.TestCase):
                             ("Ahmed Khan, b. 10-Apr-1960.", (1960,))]:
             self.assertEqual([d.value.years for d in _hp(text).dobs], [years], text)
 
+    def test_3a_age_at_time_label_line(self):
+        from screening.facts import _age_in
+        self.assertEqual(_age_in("Age at time of questioning: 27"), 27)
+        self.assertEqual(_age_in("Age at time: 48"), 48)
+        self.assertEqual(_age_in("Age at the time of arrest 31"), 31)
+        self.assertIsNone(_age_in("As at 19 November 2025 the details were current."))
+        # principle 5: aged 27 in June 2006 -> born 1978 or 1979
+        hp = _hp("Name: Ahmed Khan\nAge at time of questioning: 27\nQuestioning date: June 2006")
+        self.assertEqual([d.value.years for d in hp.dobs], [(1978, 1979)])
+
 
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):

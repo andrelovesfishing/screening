@@ -353,7 +353,8 @@ DEFAULT_PHRASE = "named on a watchlist"
 # "3rd March") is the day of a date, not an age. Explicit "age 33 May 2019" is an age then a date.
 _NOT_DAY = r"(?!\s*(?:st|nd|rd|th)?\.?\s*(?:of\s+)?(?i:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
 _AGE = re.compile(
-    r"\b(?i:aged|age of|at age|age)\s*:?\s*(\d{1,3})\b"
+    # "Age at time of questioning: 27" / "Age at the time: 48": label lines are explicit ages too
+    r"\b(?i:aged|age of|at age|age at (?:the )?time(?: of(?: [a-z]+){1,3}?)?|age)\s*:?\s*(\d{1,3})\b"
     r"|\b(\d{1,3})[\s-]*(?:years?|yrs?)[\s-]*(?:of age|old)\b"
     r"|\b(?:reached|turned|turning)\s+(\d{1,3})" + _NOT_DAY + r"\b"
     r"|\b(?:then|at)\s+(\d{1,3})" + _NOT_DAY + r"\b(?![:.]\d)"
