@@ -221,7 +221,7 @@ _CAPS_NAME = re.compile(r"\b([A-Z][A-Z'\-\.]+(?:\s+[A-Z][A-Z'\-\.]+)+)\b")
 
 
 _NOT_NAME = {"DOB", "ID", "KYC", "UK", "USA", "US", "EU", "NIN", "BVN", "SSN", "PEP", "N/A", "NA", "AML"}
-_BIRTH_KW = re.compile(r"(born|dob|d\.o\.b|birth|birthdate)", re.I)
+_BIRTH_KW = re.compile(r"\b(born|dob|d\.o\.b|birth|birthdate)\b", re.I)
 
 
 def parse_kyc_note(n: dict):
