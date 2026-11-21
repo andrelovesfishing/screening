@@ -33,6 +33,9 @@ class Person:
     # Silent guards: customer locations we saw but could not read. Each blocks a LOCATION clear,
     # because the unread place might be the shared country. Expected to be empty on dev.
     unread_locations: list[str] = field(default_factory=list)
+    # Silent guard: a KYC note that records both a failed and a passed check. Its facts are not used,
+    # and no clear may rest on the customer's facts. Expected to be empty on dev.
+    unclear_checks: list[str] = field(default_factory=list)
     trace: list[str] = field(default_factory=list)
 
 
@@ -189,6 +192,14 @@ class CustomerResolver:
                 if (n.get("channel") or "").lower() == "kyc":
                     k = parse_kyc_note(n)
                     text = n.get("text", "")
+                    # Principle 4: "Rejected or expired checks are not evidence", also when only written in a note.
+                    if _NEG_CHECK.search(text):
+                        if _POS_CHECK.search(_NEG_CHECK.sub(" ", text)):
+                            p.unclear_checks.append(f"{n['note_id']} records both a failed and a passed check")
+                        p.trace.append(f"ignored {n['note_id']}: not an approved check")
+                        if k[3]:  # inclusive: a country the customer presented a document from only blocks clears
+                            lived.append(Fact(k[3], (n["note_id"],)))
+                        continue
                     cands = caps_names(text)
                     fit = [c for c in cands if self._names_overlap(c, recs, alert)]
                     if fit:  # the holder is the capitalised name that is this customer, not e.g. "IDV OK"
@@ -285,6 +296,11 @@ _RESIDENCE = re.compile(r"\b(lived|lives|living|live in|moved|relocat\w*|resid\w
                         r"hometown|citizen\w*|national of|emigrat\w*|immigrat\w*|home country|born in|res|"
                         r"domicil\w*|based)\b", re.I)
 _NOT_NAME = {"DOB", "ID", "KYC", "UK", "USA", "US", "EU", "NIN", "BVN", "SSN", "PEP", "N/A", "NA", "AML"}
+_NEG_CHECK = re.compile(
+    r"\b(?:reject\w*|fail\w*|declin\w*|expired|unsuccessful\w*|denied|refused|invalid|pending|awaiting|inconclusive"
+    r"|under review|not (?:been |be )?(?:approved|verified|validated|passed|cleared|accepted|confirmed|successful\w*)"
+    r"|(?:could|can)\s?not (?:be )?verif\w*|unable to verif\w*)\b", re.I)
+_POS_CHECK = re.compile(r"\b(?:approved|verified|validated|passed|cleared|accepted|confirmed|success\w*|ok)\b", re.I)
 _BIRTH_KW = re.compile(r"\b(born|dob|d\.o\.b|birth|birthdate)\b", re.I)
 
 

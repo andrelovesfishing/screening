@@ -380,6 +380,43 @@ class TerseWording(unittest.TestCase):
         self.assertEqual([d.value.years for d in hp.dobs], [(1978, 1979)])
 
 
+class NegativeKycNotes(unittest.TestCase):
+    """4a, principle 4: "Rejected or expired checks are not evidence", also when written up as a note."""
+
+    def test_rejected_note_is_not_a_check(self):
+        p = _profile("Veriff REJECTED the passport check for OLEKSII HRYHORIEV (DOB 1968-02-01) on 2025-06-01: "
+                     "document image unreadable.", "Oleksii Hryhoriev")
+        self.assertIsNone(p.verified_name)
+        self.assertEqual(p.dob.value.text(), "1983-08-24")  # the record's, not the rejected check's
+        self.assertFalse(p.unclear_checks)
+
+    def test_expired_and_failed_wordings(self):
+        for t in ("Passport from Ukraine for OLEKSII HRYHORIEV, DOB 1968-02-01, had expired; Onfido check closed.",
+                  "Sumsub verification failed for OLEKSII HRYHORIEV, born 1968-02-01.",
+                  "Persona could not verify OLEKSII HRYHORIEV (DOB 1968-02-01).",
+                  "Veriff check for OLEKSII HRYHORIEV, DOB 1968-02-01, was not successful."):
+            p = _profile(t, "Oleksii Hryhoriev")
+            self.assertEqual(p.dob.value.text(), "1983-08-24", t)
+
+    def test_successful_note_is_still_a_check(self):
+        p = _profile("Persona successfully validated the passport from Ukraine for OLEKSII HRYHORIEV "
+                     "(DOB 1968-02-01) on 2024-11-23.", "Oleksii Hryhoriev")
+        self.assertEqual(p.dob.value.text(), "1968-02-01")
+
+    def test_failed_then_verified_blocks_clears(self):
+        # Mixed outcome: we cannot tell which result is the latest, so its facts are not used and
+        # no clear may rest on the customer's facts.
+        p = _profile("First Onfido attempt failed (glare); re-submitted and verified OLEKSII HRYHORIEV, "
+                     "DOB 1968-02-01, on 2024-11-23.", "Oleksii Hryhoriev")
+        self.assertTrue(p.unclear_checks)
+        pp = person(dob="1950-01-01")
+        pp.unclear_checks = ["NOTE-1 records both a failed and a passed check"]
+        o = decide(pp, hit(), ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("REVIEW", "INSUFFICIENT_DATA"))
+        self.assertIn("NOTE-1", o.evidence)
+        self.assertEqual(decide(person(dob="1950-01-01"), hit(), ALERT, NR).code, "DOB_MISMATCH")
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)

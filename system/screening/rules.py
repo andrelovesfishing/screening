@@ -273,6 +273,8 @@ def rule_location(x: Ctx):
 
 
 CONTRADICTIONS = [rule_type, rule_deceased, rule_temporal, rule_dob, rule_name, rule_location]
+# Clears that rest on the customer's identity facts (not on the hit's type or death date alone).
+_RESTS_ON_CUSTOMER = {"TEMPORAL_IMPOSSIBILITY", "DOB_MISMATCH", "NAME_MISMATCH_VERIFIED", "LOCATION_MISMATCH"}
 
 
 # ---------------------------------------------------------------- agreement
@@ -319,6 +321,18 @@ def decide(person: Person, hit: HitProfile, alert: dict, nr: NameRules) -> Outco
         if o:
             o.trace.append(f"{rule.__name__} fired")
             fired.append(o)
+    blocked = []
+    if person.unclear_checks:
+        # Silent guard: an identity check of unclear outcome might hold the facts that would stop this clear.
+        blocked = [o for o in fired if o.code in _RESTS_ON_CUSTOMER]
+        fired = [o for o in fired if o.code not in _RESTS_ON_CUSTOMER]
+        if blocked and not fired:
+            notes = [u.split()[0] for u in person.unclear_checks]
+            o = blocked[0]
+            return Outcome("REVIEW", "INSUFFICIENT_DATA", _src(o.evidence, notes),
+                           o.head + f" But {'; '.join(person.unclear_checks)}, so the customer's verified facts are"
+                           " unclear and this cannot clear the hit. A person should review it.",
+                           trace=o.trace + ["clear blocked: unclear identity check"])
     if fired:
         # The first contradiction is the reason code; when several fire, all of them are the grounds:
         # cite every one's sources and state every one (any of them is an accepted code).
