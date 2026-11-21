@@ -27,16 +27,36 @@ TABLES = {
 }
 
 
+def _flat(v) -> str:
+    """One representation for every source format: lists become '; '-joined text (split again
+    by as_list where a field is a list), nulls become '', numbers become text, objects become
+    their values joined. Downstream code never sees format differences."""
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return str(v).lower()
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, list):
+        return "; ".join(x for x in (_flat(i) for i in v) if x)
+    if isinstance(v, dict):
+        return "; ".join(f"{k}: {_flat(x)}" if not isinstance(x, (dict, list)) else _flat(x)
+                         for k, x in v.items() if _flat(x))
+    return str(v)
+
+
 def _read_any(path: str) -> list[dict]:
     if path.endswith(".jsonl"):
         with open(path, encoding="utf-8") as f:
-            return [json.loads(l) for l in f if l.strip()]
-    if path.endswith(".json"):
+            rows = [json.loads(l) for l in f if l.strip()]
+    elif path.endswith(".json"):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, list) else [data]
-    with open(path, encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
+        rows = data if isinstance(data, list) else [data]
+    else:
+        with open(path, encoding="utf-8", newline="") as f:
+            rows = list(csv.DictReader(f))
+    return [{k: _flat(v) for k, v in r.items()} for r in rows if isinstance(r, dict)]
 
 
 def _find(folder: str, keys: list[str]) -> str | None:
