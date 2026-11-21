@@ -112,6 +112,35 @@ class SilentGuards(unittest.TestCase):
         self.assertEqual(hp.unparsed_countries, ["12 Marina Road, Lagos"])
 
 
+class OtherPeoplesNotes(unittest.TestCase):
+    # Principle 2: "Never use another customer's records." A KYC note reached through a shared email
+    # whose holder shares no name part with the customer is about someone else.
+    def test_unrelated_note_is_ignored(self):
+        from screening.facts import CustomerResolver
+
+        class _S:
+            applicants_by_customer, kyc_by_applicant = {}, {}
+            customers = {"CUS-1": {"record_id": "CUS-1", "full_name": "Hadiza Adewale", "email": "x@y.z",
+                                   "entity_type": "Individual", "dob": "1990-01-01", "residence_country": "NG"}}
+            notes_by_email = {"x@y.z": [{"note_id": "NOTE-1", "channel": "kyc", "created_at": "2023-06-14",
+                                         "text": "On 2023-06-14, Onfido validated the passport for EMEKA NWOSU, born 16 October 1995."}]}
+        p = CustomerResolver(_S(), NR).profile(["CUS-1"], {"customer_name": "Hadiza Adewale"})
+        self.assertIsNone(p.verified_name)
+        self.assertEqual(p.dob.sources, ("CUS-1",))
+
+    def test_related_note_is_used(self):
+        from screening.facts import CustomerResolver
+
+        class _S:
+            applicants_by_customer, kyc_by_applicant = {}, {}
+            customers = {"CUS-1": {"record_id": "CUS-1", "full_name": "Davit Sargsyan", "email": "x@y.z",
+                                   "entity_type": "Individual"}}
+            notes_by_email = {"x@y.z": [{"note_id": "NOTE-1", "channel": "kyc", "created_at": "2023-06-14",
+                                         "text": "On 2023-06-14, Onfido validated the passport for DANIEL SARGSYAN, born 16 October 1995."}]}
+        p = CustomerResolver(_S(), NR).profile(["CUS-1"], {"customer_name": "Davit Sargsyan"})
+        self.assertEqual(p.verified_name.value, "DANIEL SARGSYAN")
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)

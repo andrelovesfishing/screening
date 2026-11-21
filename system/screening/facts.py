@@ -182,7 +182,13 @@ class CustomerResolver:
         for e in emails:
             for n in self.s.notes_by_email.get(e, []):
                 if (n.get("channel") or "").lower() == "kyc":
-                    checks.append(parse_kyc_note(n) + ("",))
+                    k = parse_kyc_note(n)
+                    if k[1] and not self._names_overlap(k[1], recs, alert):
+                        # Principle 2, "never use another customer's records": a note reached through a shared
+                        # email whose holder shares no name part with this customer is about someone else.
+                        p.trace.append(f"ignored {n['note_id']}: check for {k[1]} shares no name part with the customer")
+                        continue
+                    checks.append(k + ("",))
                 else:  # inclusive on purpose: a country we miss could cause an unsafe LOCATION clear
                     found = countries_in(n.get("text", ""))
                     for c in found:
@@ -223,6 +229,13 @@ class CustomerResolver:
                     p.unread_locations.append(f"{c['record_id']} {f} {c[f]!r} not read")
         p.countries += lived
         return p
+
+    def _names_overlap(self, name: str, recs: list[dict], alert: dict) -> bool:
+        company = is_company(alert.get("entity_type"))
+        own = [alert.get("customer_name") or ""] + [r.get(f) or "" for r in recs
+                                                     for f in ("full_name", "preferred_name", "login_name")]
+        mine = self.nr.parts(name, company)
+        return any(self.nr.part_match(a, b) for o in own for b in self.nr.parts(o, company) for a in mine)
 
     def screened_only(self, alert: dict) -> Person:
         """No customer record found: fall back to the screened details (unverified)."""
