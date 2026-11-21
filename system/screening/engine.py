@@ -33,14 +33,17 @@ class Engine:
             if len({o.decision for o in outs}) == 1:
                 o = outs[0]
                 evidence = sorted({e for x in outs for e in x.evidence})
-                code, reason, decision = o.code, o.reason, o.decision
+                code, decision = o.code, o.decision
+                reason = (f"{len(outs)} people in the system of record fit the alert, and each leads to this decision; "
+                          f"for the first ({', '.join(persons[0])}): {o.reason}")
             else:
                 decision, code = "REVIEW", "AMBIGUOUS_CUSTOMER_RECORD"
                 evidence = sorted({r for p in persons for r in p})
                 reason = ("More than one person in the system of record fits the alert ("
                           + "; ".join(", ".join(p) for p in persons)
                           + ") and they lead to different decisions ("
-                          + ", ".join(f"{o.decision} {o.code}" for o in outs) + ").")
+                          + ", ".join(f"{o.decision} {o.code}" for o in outs) + ")."
+                          + " The decision depends on which of them the customer is, so a person should review it.")
             rid = "AMBIGUOUS"
         else:
             o = outs[0]
