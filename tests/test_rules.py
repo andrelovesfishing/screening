@@ -225,6 +225,43 @@ class RareClauses(unittest.TestCase):
         self.assertEqual(o.code, "DOB_MISMATCH")
 
 
+class AuditFindings(unittest.TestCase):
+    """Fixes from the part B Grok fact audit (checked by hand against POLICY.md)."""
+
+    def test_f1_age_colon_line_is_read(self):
+        # H-4A2E8B: "Age: 55" at "December 13, 2017" -> born 1961 or 1962 (principle 5).
+        from screening.facts import _age_in
+        self.assertEqual(_age_in("information as of December 13, 2017:\nName: Timothy Villagomez\nAge: 55"), 55)
+
+    def test_f1_age_line_gives_hit_dob(self):
+        from screening.facts import hit_profile
+
+        class _S:
+            search_by_query = {}
+        hp = hit_profile(_S(), {"hit_id": "H-4", "entity_type": "Individual", "name": "Timothy Villagomez",
+                                "profile_notes": "According to the Federal Bureau of Prisons, information as of "
+                                                 "December 13, 2017:\nName: Timothy Villagomez\nAge: 55"})
+        self.assertEqual([d.value.years for d in hp.dobs], [(1961, 1962)])
+
+    def test_f2_day_of_a_date_is_not_an_age(self):
+        from screening.facts import _age_in
+        for s in ("As at 19 November 2025 the details were current.", "at 3rd March 2020 he was listed",
+                  "then 21 of May 2019", "He was 12 Nov 2020 arrested"):
+            self.assertIsNone(_age_in(s), s)
+            self.assertIsNone(_age_in(s, loose=True), s)
+        self.assertEqual(_age_in("Zainab Adewale, then 19."), 19)
+
+    def test_f3_company_hit_dates_only_from_dobs_field(self):
+        # Principle 5: "For companies, only the dobs field is an incorporation date."
+        from screening.facts import hit_profile
+
+        class _S:
+            search_by_query = {}
+        hp = hit_profile(_S(), {"hit_id": "H-5", "entity_type": "Company", "name": "Acme Holdings Ltd",
+                                "profile_notes": "Acme Holdings, born of a 1998 merger, aged 25 in March 2023."})
+        self.assertEqual(hp.dobs, [])
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)

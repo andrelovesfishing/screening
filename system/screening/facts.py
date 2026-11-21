@@ -321,12 +321,16 @@ LISTING_PHRASES = {
 }
 DEFAULT_PHRASE = "named on a watchlist"
 
+# A number followed by a month ("As at 19 November 2025", "3rd March") is the day of a date, not an age.
+_NOT_DAY = r"(?!\s*(?:st|nd|rd|th)?\.?\s*(?:of\s+)?(?i:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
 _AGE = re.compile(
-    r"\b(?:aged|age of|at age|age)\s+(\d{1,3})\b"
+    r"\b(?i:aged|age of|at age|age)\s*:?\s*(\d{1,3})" + _NOT_DAY + r"\b"
     r"|\b(\d{1,3})[\s-]*(?:years?|yrs?)[\s-]*(?:of age|old)\b"
-    r"|\b(?:reached|turned|turning)\s+(\d{1,3})\b|\b(?:then|at)\s+(\d{1,3})\b(?![:.]\d)"
-    r"|\b(?:he|she|they|who|was|were|is)\s+(?:was\s+|were\s+|is\s+)?(?:then\s+)?(\d{1,3})\b(?!\s*(?:%|percent|million|people|times))"
-    r"|,\s*(\d{1,3}),")
+    r"|\b(?:reached|turned|turning)\s+(\d{1,3})" + _NOT_DAY + r"\b"
+    r"|\b(?:then|at)\s+(\d{1,3})" + _NOT_DAY + r"\b(?![:.]\d)"
+    r"|\b(?:he|she|they|who|was|were|is)\s+(?:was\s+|were\s+|is\s+)?(?:then\s+)?(\d{1,3})" + _NOT_DAY
+    + r"\b(?!\s*(?:%|percent|million|people|times))"
+    r"|,\s*(\d{1,3})" + _NOT_DAY + r",")
 _REPORT = re.compile(r"^\s*According to .+?;\s*([^;:]{3,40}?)\s*:")
 
 
@@ -340,7 +344,7 @@ def _age_in(text: str, loose: bool = False) -> int | None:
         return None
     # Short snippets: the age is the only small standalone number outside any date.
     spans = [(s, e) for s, e, _ in find_dates(text)]
-    nums = [int(n.group()) for n in re.finditer(r"(?<![\d.,/-])\b\d{1,3}\b(?![\d.,/-]\d)", text)
+    nums = [int(n.group()) for n in re.finditer(r"(?<![\d.,/-])\b\d{1,3}" + _NOT_DAY + r"\b(?![\d.,/-]\d)", text)
             if not any(s <= n.start() < e for s, e in spans)]
     nums = [n for n in nums if 0 < n < 120]
     return nums[0] if len(set(nums)) == 1 else None
@@ -386,7 +390,9 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
     origin = "dobs field" if dobs else ""
     notes = hit.get("profile_notes") or ""
     n_field = len(dobs)
-    if True:  # inclusive on purpose: an extra possible birth date can only block a DOB clear
+    # Principle 5: "For companies, only the dobs field is an incorporation date."
+    person_hit = not is_company(hit.get("entity_type"))
+    if person_hit:  # inclusive on purpose: an extra possible birth date can only block a DOB clear
         first = notes.strip().split("\n\n")[0] if notes.strip() else ""
         for sent in re.split(r"(?<=[.!?])\s+", first):
             if re.search(r"\bborn\b", sent, re.I):
@@ -404,7 +410,7 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
                 break
         if len(dobs) > n_field:
             origin = "dobs field and profile notes" if n_field else "profile notes"
-    if not dobs:
+    if not dobs and person_hit:
         q = " ".join(sorted(fold(hit.get("name") or "").split()))
         hit_cs = {c.value for c in countries}
         for sr in sorted(store.search_by_query.get(q, []), key=lambda s: s.get("result_id", "")):

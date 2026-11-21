@@ -270,9 +270,13 @@ def agreement(x: Ctx) -> Outcome:
                            f"The names agree ({nm[0].value} and {nm[1]}) and the dates of birth agree ({x.p.dob.value.text()} and {dm.value.text()}),"
                            f" but {_country_status(x)}."
                            " Under the SOP a country difference does not clear a hit whose name and date of birth agree, and it stops a confirmation, so a person should review it.")
+        others = [h.value.text() for h in x.h.dobs if dob_contradicted(x.p.dob.value, h.value)]
+        conflict = (f" The hit also gives {', '.join(others)}, which does not agree, but one agreeing date is enough under the SOP."
+                    if others else "")
         if sc:
             return Outcome("SAME_ENTITY", "NAME_DOB_LOCATION_MATCH", _src(nm[0], x.p.dob, dm, *sc, exclude=x.h.hit_id),
-                           f"The customer's date of birth {x.p.dob.value.text()} ({', '.join(x.p.dob.sources)}) agrees with the hit's {dm.value.text()}. Both are linked to {sc[0].value}. The customer's name {nm[0].value} agrees with the hit's name {nm[1]}.")
+                           f"The customer's date of birth {x.p.dob.value.text()} ({', '.join(x.p.dob.sources)}) agrees with the hit's {dm.value.text()}. Both are linked to {sc[0].value}. The customer's name {nm[0].value} agrees with the hit's name {nm[1]}."
+                           + conflict)
         return Outcome("SAME_ENTITY", "NAME_DOB_MATCH", _src(nm[0], x.p.dob, dm, exclude=x.h.hit_id),
                        f"The customer's date of birth {x.p.dob.value.text()} ({', '.join(x.p.dob.sources)}) agrees with the hit's {dm.value.text()}, and the customer's name {nm[0].value} agrees with the hit's name {nm[1]}."
                        f" Other checks: {_country_status(x)}. Nothing contradicts them.")
