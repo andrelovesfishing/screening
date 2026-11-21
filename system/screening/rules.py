@@ -255,6 +255,13 @@ def agreement(x: Ctx) -> Outcome:
                            f"The customer's name {nm[0].value} agrees with the hit's name {nm[1]}, and both are linked to {sc[0].value}."
                            f" Other checks: {_dob_status(x)}. Nothing contradicts them.")
     elif nm and dm:
+        if x.p.countries and x.h.countries and not sc and not x.h.unparsed_countries:
+            # Principle 6: a country difference does not clear a name + DOB agreement, and it is a
+            # contradiction, so it cannot be confirmed either: REVIEW.
+            return Outcome("REVIEW", "INSUFFICIENT_DATA", _src(nm[0], x.p.dob, *x.p.countries, exclude=x.h.hit_id),
+                           f"The names agree ({nm[0].value} and {nm[1]}) and the dates of birth agree ({x.p.dob.value.text()} and {dm.value.text()}),"
+                           f" but {_country_status(x)}."
+                           " Under the SOP a country difference does not clear a hit whose name and date of birth agree, and it stops a confirmation, so a person should review it.")
         if sc:
             return Outcome("SAME_ENTITY", "NAME_DOB_LOCATION_MATCH", _src(nm[0], x.p.dob, dm, *sc, exclude=x.h.hit_id),
                            f"The customer's date of birth {x.p.dob.value.text()} ({', '.join(x.p.dob.sources)}) agrees with the hit's {dm.value.text()}. Both are linked to {sc[0].value}. The customer's name {nm[0].value} agrees with the hit's name {nm[1]}.")
