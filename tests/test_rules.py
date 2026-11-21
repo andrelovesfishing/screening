@@ -141,6 +141,90 @@ class OtherPeoplesNotes(unittest.TestCase):
         self.assertEqual(p.verified_name.value, "DANIEL SARGSYAN")
 
 
+def company(name="Starling Logistics Ltd", inc="2015-03-01", countries=("United Kingdom",)):
+    p = person(name, inc, countries)
+    p.entity_type = "Company"
+    return p
+
+
+def company_hit(names=("Starling Logistics Limited",), inc=(), countries=("United Kingdom",), report=None):
+    h = hit(names, inc, countries)
+    h.entity_type = "Company"
+    h.earliest_report = Fact(parse_date(report), ("H-1",)) if report else None
+    return h
+
+
+class RareClauses(unittest.TestCase):
+    """Principle 6 and 7 paths that are rare on dev."""
+
+    def test_younger_than_16_at_earliest_report_clears(self):
+        h = hit(dobs=())
+        h.earliest_report = Fact(parse_date("2020-02-18"), ("H-1",))
+        o = decide(person(dob="2007-08-21"), h, ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY"))
+
+    def test_exactly_16_at_report_does_not_clear(self):
+        h = hit(dobs=())
+        h.earliest_report = Fact(parse_date("2023-08-21"), ("H-1",))
+        o = decide(person(dob="2007-08-21"), h, ALERT, NR)
+        self.assertNotEqual(o.code, "TEMPORAL_IMPOSSIBILITY")
+
+    def test_company_incorporated_after_report_clears(self):
+        o = decide(company(inc="2021-05-01"), company_hit(report="2019-09-10"), ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY"))
+
+    def test_company_incorporated_before_report_does_not_clear_on_time(self):
+        o = decide(company(inc="2015-03-01"), company_hit(report="2019-09-10"), ALERT, NR)
+        self.assertNotEqual(o.code, "TEMPORAL_IMPOSSIBILITY")
+
+    def test_death_before_screening_clears(self):
+        h = hit()
+        h.deceased = Fact(parse_date("2022-03"), ("H-1",))
+        o = decide(person(), h, ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("DIFFERENT_ENTITY", "DECEASED"))
+
+    def test_death_after_screening_does_not_clear(self):
+        h = hit()
+        h.deceased = Fact(parse_date("2026-12-01"), ("H-1",))
+        self.assertNotEqual(decide(person(), h, ALERT, NR).code, "DECEASED")
+
+    def test_person_against_company_clears_on_type(self):
+        o = decide(person(), company_hit(names=("Okafor Amina Bello Ltd",)), ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("DIFFERENT_ENTITY", "ENTITY_TYPE_MISMATCH"))
+
+    def test_company_confirms_on_name_and_country(self):
+        # Principle 7: "a company when name and country agree"; legal forms are not name parts.
+        o = decide(company(), company_hit(), ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("SAME_ENTITY", "NAME_LOCATION_MATCH"))
+
+    def test_company_name_agrees_but_no_shared_country_clears_on_location(self):
+        o = decide(company(), company_hit(countries=("Singapore",)), ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("DIFFERENT_ENTITY", "LOCATION_MISMATCH"))
+
+    def test_company_incorporation_date_mismatch_clears(self):
+        o = decide(company(inc="2015-03-01"), company_hit(inc=("1998",), countries=()), ALERT, NR)
+        self.assertEqual((o.decision, o.code), ("DIFFERENT_ENTITY", "DOB_MISMATCH"))
+
+    def test_one_part_name_neither_confirms_nor_clears_on_name(self):
+        # Principle 8: fewer than two real parts can be neither confirmed nor cleared on name.
+        o = decide(person(name="Amina"), hit(names=("Zainab Yusuf",), countries=()), ALERT, NR)
+        self.assertNotEqual(o.code, "NAME_MISMATCH_VERIFIED")
+        o = decide(person(name="Amina NA"), hit(names=("Amina",)), ALERT, NR)
+        self.assertNotEqual(o.decision, "SAME_ENTITY")
+
+    def test_single_part_hit_alias_can_agree(self):
+        o = decide(person(), hit(names=("Okafor",)), ALERT, NR)
+        self.assertEqual(o.decision, "SAME_ENTITY")
+
+    def test_dob_one_year_out_does_not_contradict(self):
+        o = decide(person(dob="1980-05-02"), hit(dobs=("1981",), countries=()), ALERT, NR)
+        self.assertNotEqual(o.code, "DOB_MISMATCH")
+
+    def test_dob_same_year_other_month_contradicts(self):
+        o = decide(person(dob="1980-05-02"), hit(dobs=("1980-07",), countries=()), ALERT, NR)
+        self.assertEqual(o.code, "DOB_MISMATCH")
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)
