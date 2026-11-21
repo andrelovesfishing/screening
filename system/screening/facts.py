@@ -312,8 +312,10 @@ def _dated(text: str) -> D | None:
 
 def hit_profile(store: Store, hit: dict) -> HitProfile:
     hid = hit["hit_id"]
-    names = [hit.get("name") or ""] + as_list(hit.get("aliases"))
-    names = [n for n in names if n.strip()]
+    # Inclusive on purpose: every form of the hit's name can only block a NAME_MISMATCH clear.
+    full = " ".join(x for x in (hit.get("first_name"), hit.get("middle_name"), hit.get("last_name")) if x)
+    names = [hit.get("name") or ""] + as_list(hit.get("aliases")) + [hit.get("best_matching_name") or "", full]
+    names = list(dict.fromkeys(n for n in names if n.strip()))
     cats = as_list(hit.get("categories"))
     cat = (hit.get("primary_category") or (cats[0] if cats else "")).strip().lower()
     phrase = LISTING_PHRASES.get(cat, DEFAULT_PHRASE)

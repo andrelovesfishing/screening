@@ -56,7 +56,20 @@ def _read_any(path: str) -> list[dict]:
     else:
         with open(path, encoding="utf-8", newline="") as f:
             rows = list(csv.DictReader(f))
-    return [{k: _flat(v) for k, v in r.items()} for r in rows if isinstance(r, dict)]
+    return [_flatten_record(r) for r in rows if isinstance(r, dict)]
+
+
+def _flatten_record(r: dict) -> dict:
+    """Nested objects (e.g. an alert's `customer: {name, dob, ...}`) are lifted to the top level
+    as `<parent>_<key>` and, where free, as `<key>`, so `customer.name` is `customer_name`."""
+    out = {k: _flat(v) for k, v in r.items()}
+    for k, v in r.items():
+        if isinstance(v, dict):
+            for sub, x in v.items():
+                out.setdefault(f"{k}_{sub}", _flat(x))
+                if sub not in r:
+                    out.setdefault(sub, _flat(x))
+    return out
 
 
 def _find(folder: str, keys: list[str]) -> str | None:
@@ -85,6 +98,8 @@ def _load_variants(folder: str) -> tuple[list[list[str]], list[str]]:
         groups, forms = [], []
 
         def walk(x, key=""):
+            if key in ("description", "notes", "comment", "_comment"):
+                return
             is_forms = any(w in key for w in ("legal", "form", "compan"))
             if isinstance(x, dict):
                 for k, v in x.items():
