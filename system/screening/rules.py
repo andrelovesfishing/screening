@@ -19,6 +19,16 @@ class Outcome:
     evidence: list[str]
     reason: str
     trace: list[str] = field(default_factory=list)
+    # For a clear, the reason's parts, so several firing contradictions can share one reason:
+    # the decisive sentence, the checks it covers (left out of "Other checks"), and a closing SOP sentence.
+    head: str = ""
+    skip: tuple = ()
+    tail: str = ""
+
+
+def _clear(x, code: str, evidence: list[str], head: str, skip: tuple, tail: str = "") -> "Outcome":
+    return Outcome("DIFFERENT_ENTITY", code, evidence, head + _other(x, *skip) + tail,
+                   head=head, skip=skip, tail=tail)
 
 
 def _src(*facts, exclude: str = "") -> list[str]:
@@ -177,7 +187,8 @@ def _checks(x: Ctx, *skip: str) -> str:
 
 
 def _other(x: Ctx, *skip: str) -> str:
-    return f" Other checks: {_checks(x, *skip)}."
+    c = _checks(x, *skip)
+    return f" Other checks: {c}." if c else ""
 
 
 # ---------------------------------------------------------------- contradiction rules
@@ -188,18 +199,18 @@ def rule_type(x: Ctx):
         return None  # silent guard: an unrecognised type is unknown, not "a person"
     if is_company(x.h.entity_type) != x.company:
         kind = lambda b: "a company" if b else "a person"
-        return Outcome("DIFFERENT_ENTITY", "ENTITY_TYPE_MISMATCH", _src(x.records),
-                       f"The customer is {kind(x.company)} but the hit {x.h.label} is {kind(is_company(x.h.entity_type))}."
-                       " A person and a company cannot be the same entity, so no other check can change this.")
+        return _clear(x, "ENTITY_TYPE_MISMATCH", _src(x.records),
+                      f"The customer is {kind(x.company)} but the hit {x.h.label} is {kind(is_company(x.h.entity_type))}.",
+                      ("name", "dob", "country"),
+                      " A person and a company cannot be the same entity, so no other check can change this.")
 
 
 def rule_deceased(x: Ctx):
     d = x.h.deceased
     screened = parse_date(x.alert.get("screened_at", ""))
     if d and screened and d.value.latest_ordinal() < screened.earliest_ordinal():
-        return Outcome("DIFFERENT_ENTITY", "DECEASED", _src(x.records),
-                       f"The hit {x.h.label} died in {d.value.text()}, before the customer was screened on {screened.text()}."
-                       + _other(x))
+        return _clear(x, "DECEASED", _src(x.records),
+                      f"The hit {x.h.label} died in {d.value.text()}, before the customer was screened on {screened.text()}.", ())
 
 
 def rule_temporal(x: Ctx):
@@ -209,14 +220,14 @@ def rule_temporal(x: Ctx):
     readings = dob.value.readings()
     if x.company:
         if all(d.earliest_ordinal() > r.value.latest_ordinal() for d in readings):
-            return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
-                           f"The customer company was incorporated on {dob.value.text()}, after the hit's earliest dated report ({r.value.text()})."
-                           + _other(x, "dob"))
+            return _clear(x, "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
+                          f"The customer company was incorporated on {dob.value.text()}, after the hit's earliest dated report ({r.value.text()}).",
+                          ("dob",))
         return None
     if all(_plus_years(d, 16) > r.value.latest_ordinal() for d in readings):
-        return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
-                       f"The customer was born on {dob.value.text()} ({', '.join(dob.sources)}), so was younger than 16 at the hit's earliest dated report ({r.value.text()})."
-                       + _other(x, "dob"))
+        return _clear(x, "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
+                      f"The customer was born on {dob.value.text()} ({', '.join(dob.sources)}), so was younger than 16 at the hit's earliest dated report ({r.value.text()}).",
+                      ("dob",))
 
 
 def rule_dob(x: Ctx):
@@ -227,9 +238,9 @@ def rule_dob(x: Ctx):
     c = x.p.dob.value
     if all(dob_contradicted(c, h.value) for h in x.h.dobs):
         hs = ", ".join(h.value.text() for h in x.h.dobs)
-        return Outcome("DIFFERENT_ENTITY", "DOB_MISMATCH", _src(x.p.dob, *x.h.dobs, exclude=x.h.hit_id),
-                       f"The customer's date of birth {c.text()} ({', '.join(x.p.dob.sources)}) contradicts every birth date the hit gives ({hs}, from its {x.h.dob_origin})."
-                       + _other(x, "dob"))
+        return _clear(x, "DOB_MISMATCH", _src(x.p.dob, *x.h.dobs, exclude=x.h.hit_id),
+                      f"The customer's date of birth {c.text()} ({', '.join(x.p.dob.sources)}) contradicts every birth date the hit gives ({hs}, from its {x.h.dob_origin}).",
+                      ("dob",))
 
 
 def rule_name(x: Ctx):
@@ -241,9 +252,9 @@ def rule_name(x: Ctx):
     if not any(x.nr.parts(hn, x.company) for hn in x.h.names):
         return None  # unknown stays unknown: no comparable (e.g. Latin-script) hit name to disagree with
     if not any(x.nr.agree(v.value, hn, x.company) for hn in x.h.names):
-        return Outcome("DIFFERENT_ENTITY", "NAME_MISMATCH_VERIFIED", _src(v),
-                       f"The customer's verified legal name {v.value} ({', '.join(v.sources)}) agrees with none of the hit's names ({'; '.join(x.h.names)})."
-                       + _other(x, "name"))
+        return _clear(x, "NAME_MISMATCH_VERIFIED", _src(v),
+                      f"The customer's verified legal name {v.value} ({', '.join(v.sources)}) agrees with none of the hit's names ({'; '.join(x.h.names)}).",
+                      ("name",))
 
 
 def rule_location(x: Ctx):
@@ -255,10 +266,10 @@ def rule_location(x: Ctx):
         return None  # a location we could not read (either side) might be the shared country: don't clear on it
     cc = sorted({c.value for c in x.p.countries})
     hc = sorted({c.value for c in x.h.countries})
-    return Outcome("DIFFERENT_ENTITY", "LOCATION_MISMATCH", _src(*x.p.countries),
-                   f"Every country tied to the customer ({', '.join(cc)}) differs from every country tied to the hit ({', '.join(hc)})."
-                   + _other(x, "country")
-                   + " A country difference clears a hit only when name and date of birth do not both agree, as here.")
+    return _clear(x, "LOCATION_MISMATCH", _src(*x.p.countries),
+                  f"Every country tied to the customer ({', '.join(cc)}) differs from every country tied to the hit ({', '.join(hc)}).",
+                  ("country",),
+                  " A country difference clears a hit only when name and date of birth do not both agree, as here.")
 
 
 CONTRADICTIONS = [rule_type, rule_deceased, rule_temporal, rule_dob, rule_name, rule_location]
@@ -302,11 +313,22 @@ def agreement(x: Ctx) -> Outcome:
 
 def decide(person: Person, hit: HitProfile, alert: dict, nr: NameRules) -> Outcome:
     x = Ctx(person, hit, alert, nr)
+    fired = []
     for rule in CONTRADICTIONS:
         o = rule(x)
         if o:
             o.trace.append(f"{rule.__name__} fired")
-            return o
+            fired.append(o)
+    if fired:
+        # The first contradiction is the reason code; when several fire, all of them are the grounds:
+        # cite every one's sources and state every one (any of them is an accepted code).
+        o = fired[0]
+        if len(fired) > 1:
+            skip = tuple(sorted({s for f in fired for s in f.skip}))
+            o.evidence = _src(*[f.evidence for f in fired])
+            o.reason = " ".join(f.head for f in fired) + _other(x, *skip) + o.tail
+            o.trace = [t for f in fired for t in f.trace]
+        return o
     o = agreement(x)
     o.trace.append("no contradiction; " + ("agreement" if o.decision == "SAME_ENTITY" else "not enough to confirm"))
     return o
