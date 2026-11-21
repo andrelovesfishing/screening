@@ -44,11 +44,19 @@ class Grok:
         self.cost_ticks = 0
         self.tokens = 0
         self._key = None
-        if os.path.exists(CACHE):
-            with open(CACHE, encoding="utf-8") as f:
+        # One file per prompt version, so two stages running at once never append to the same file
+        # (the lock only guards threads within one process). The shared legacy file is still read.
+        self.path = os.path.join(os.path.dirname(CACHE), f"grok-{prompt_version}.jsonl")
+        for p in (CACHE, self.path):
+            if not os.path.exists(p):
+                continue
+            with open(p, encoding="utf-8") as f:
                 for line in f:
-                    if line.strip():
+                    try:
                         r = json.loads(line)
+                    except ValueError:  # a torn line: that answer is simply asked again
+                        continue
+                    if r.get("pv") == self.pv:
                         self.cache[r["key"]] = r
 
     def _cache_key(self, system: str, user: str, schema) -> str:
@@ -104,8 +112,8 @@ class Grok:
             self.tokens += (usage.get("prompt_tokens") or 0) + (usage.get("completion_tokens") or 0)
             self.cost_ticks += usage.get("cost_in_usd_ticks") or 0
             self.cache[key] = rec
-            os.makedirs(os.path.dirname(CACHE), exist_ok=True)
-            with open(CACHE, "a", encoding="utf-8", newline="\n") as f:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            with open(self.path, "a", encoding="utf-8", newline="\n") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return answer
 
