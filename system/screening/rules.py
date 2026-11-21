@@ -143,6 +143,8 @@ def rule_name(x: Ctx):
         return None
     if not x.company and len(x.nr.parts(v.value)) < 2:
         return None
+    if not any(x.nr.parts(hn, x.company) for hn in x.h.names):
+        return None  # unknown stays unknown: no comparable (e.g. Latin-script) hit name to disagree with
     if not any(x.nr.agree(v.value, hn, x.company) for hn in x.h.names):
         return Outcome("DIFFERENT_ENTITY", "NAME_MISMATCH_VERIFIED", _src(v),
                        f"The customer's verified legal name {v.value} ({', '.join(v.sources)}) agrees with none of the hit's names ({'; '.join(x.h.names)}).")
@@ -153,6 +155,8 @@ def rule_location(x: Ctx):
         return None
     if x.name_match and x.dob_match:
         return None  # a country difference alone does not clear a name+DOB agreement -> REVIEW
+    if x.h.unparsed_countries:
+        return None  # a hit location we could not read might be the shared country: don't clear on it
     cc = sorted({c.value for c in x.p.countries})
     hc = sorted({c.value for c in x.h.countries})
     return Outcome("DIFFERENT_ENTITY", "LOCATION_MISMATCH", _src(*x.p.countries),

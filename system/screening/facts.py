@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, field
 
 from .data import Store
-from .text import D, NameRules, age_to_years, as_list, countries_in, country, find_dates, fold, parse_date
+from .text import NOT_COUNTRIES, D, NameRules, age_to_years, as_list, countries_in, country, find_dates, fold, parse_date
 
 
 @dataclass
@@ -44,6 +44,7 @@ class HitProfile:
     deceased: Fact | None
     earliest_report: Fact | None
     listing_phrase: str
+    unparsed_countries: list[str] = field(default_factory=list)  # location values we could not read
     trace: list[str] = field(default_factory=list)
 
 
@@ -321,12 +322,16 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
     cat = (hit.get("primary_category") or (cats[0] if cats else "")).strip().lower()
     phrase = LISTING_PHRASES.get(cat, DEFAULT_PHRASE)
 
-    countries = []
+    countries, unparsed = [], []
     for f in ("countries", "nationality", "citizenship", "addresses", "place_of_birth"):
         for v in as_list(hit.get(f)):
             c = country(v)
             if c and all(c != x.value for x in countries):
                 countries.append(Fact(c, (hid,)))
+            elif not c and f != "addresses":
+                last = fold(v.split(",")[-1])
+                if last and last not in NOT_COUNTRIES:
+                    unparsed.append(v)
 
     trace = []
     dobs = [Fact(d, (hid,)) for d in (parse_date(v) for v in as_list(hit.get("dobs"))) if d]
@@ -382,4 +387,4 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
 
     return HitProfile(hit_id=hid, entity_type=hit.get("entity_type", ""), names=names, dobs=dobs,
                       dob_origin=origin, countries=countries, deceased=deceased, earliest_report=earliest,
-                      listing_phrase=phrase, trace=trace)
+                      listing_phrase=phrase, unparsed_countries=unparsed, trace=trace)
