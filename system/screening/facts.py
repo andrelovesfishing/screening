@@ -188,14 +188,24 @@ class CustomerResolver:
             for n in self.s.notes_by_email.get(e, []):
                 if (n.get("channel") or "").lower() == "kyc":
                     k = parse_kyc_note(n)
-                    if k[1] and not self._names_overlap(k[1], recs, alert):
-                        # Principle 2, "never use another customer's records": a note reached through a shared
-                        # email whose holder shares no name part with this customer is about someone else.
-                        p.trace.append(f"ignored {n['note_id']}: check for {k[1]} shares no name part with the customer")
-                        continue
+                    text = n.get("text", "")
+                    cands = caps_names(text)
+                    fit = [c for c in cands if self._names_overlap(c, recs, alert)]
+                    if fit:  # the holder is the capitalised name that is this customer, not e.g. "IDV OK"
+                        k = (k[0], fit[0]) + k[2:]
+                    elif k[1]:
+                        if not self._mentions_customer(text, recs, alert):
+                            # Principle 2, "never use another customer's records": a note reached through a
+                            # shared email that never names this customer is about someone else.
+                            p.trace.append(f"ignored {n['note_id']}: check for {k[1]} never names the customer")
+                            continue
+                        # It names the customer but no clean holder name: keep its facts, not a name we guessed
+                        # (a wrong verified name would cause a NAME_MISMATCH clear).
+                        p.trace.append(f"{n['note_id']}: holder name unclear, not used")
+                        k = (k[0], "") + k[2:]
                     checks.append(k + ("",))
                 else:  # inclusive on purpose: a country we miss could cause an unsafe LOCATION clear
-                    found = countries_in(n.get("text", ""))
+                    found = countries_in(n.get("text", ""), codes=True)
                     for c in found:
                         lived.append(Fact(c, (n["note_id"],)))
                     if not found and _RESIDENCE.search(n.get("text", "")):
@@ -242,6 +252,15 @@ class CustomerResolver:
         mine = self.nr.parts(name, company)
         return any(self.nr.part_match(a, b) for o in own for b in self.nr.parts(o, company) for a in mine)
 
+    def _mentions_customer(self, text: str, recs: list[dict], alert: dict) -> bool:
+        """Any of the customer's own name parts occurs anywhere in the text."""
+        company = is_company(alert.get("entity_type"))
+        own = [alert.get("customer_name") or ""] + [r.get(f) or "" for r in recs
+                                                     for f in ("full_name", "preferred_name", "login_name")]
+        parts = {b for o in own for b in self.nr.parts(o, company) if len(b) >= 3}
+        words = set(self.nr.parts(text, company))
+        return any(w == b or self.nr.part_match(w, b) for w in words for b in parts)
+
     def screened_only(self, alert: dict) -> Person:
         """No customer record found: fall back to the screened details (unverified)."""
         p = Person(record_ids=[], entity_type=alert.get("entity_type", ""))
@@ -263,7 +282,8 @@ _CAPS_NAME = re.compile(r"\b([A-Z][A-Z'\-\.]+(?:\s+[A-Z][A-Z'\-\.]+)+)\b")
 
 
 _RESIDENCE = re.compile(r"\b(lived|lives|living|live in|moved|relocat\w*|resid\w*|grew up|based in|originally from|"
-                        r"hometown|citizen\w*|national of|emigrat\w*|immigrat\w*|home country|born in)\b", re.I)
+                        r"hometown|citizen\w*|national of|emigrat\w*|immigrat\w*|home country|born in|res|"
+                        r"domicil\w*|based)\b", re.I)
 _NOT_NAME = {"DOB", "ID", "KYC", "UK", "USA", "US", "EU", "NIN", "BVN", "SSN", "PEP", "N/A", "NA", "AML"}
 _BIRTH_KW = re.compile(r"\b(born|dob|d\.o\.b|birth|birthdate)\b", re.I)
 
@@ -272,13 +292,8 @@ def parse_kyc_note(n: dict):
     """An onboarding-team note recording an approved identity check."""
     text = n.get("text", "")
     created = parse_date(n.get("created_at", ""))
-    name = ""
-    for m in _CAPS_NAME.finditer(text):
-        toks = [t.strip(".-'’") for t in m.group(1).split()]
-        toks = [t for t in toks if t and t not in _NOT_NAME]
-        if len(toks) >= 2:
-            name = " ".join(toks)
-            break
+    names = caps_names(text)
+    name = names[0] if names else ""
     dates = [(s0, d) for s0, _, d in find_dates(text) if d.month and d.day
              and not (created and (d.year, d.month, d.day) == (created.year, created.month, created.day))
              and (not created or d.year <= created.year - 10)]
@@ -288,8 +303,21 @@ def parse_kyc_note(n: dict):
         dob = min(dates, key=lambda t: min((t[0] - k) if t[0] >= k else 10_000 + (k - t[0]) for k in kws))[1]
     elif len(dates) == 1:
         dob = dates[0][1]
-    cs = countries_in(text)
+    # The document country: a country name first; a bare code ("RUS nat ID") only when no name is given,
+    # because the holder's own UPPERCASE name can contain a code ("LI WEI").
+    cs = countries_in(text) or countries_in(text, codes=True)
     return (created, name, dob, cs[0] if cs else None, n["note_id"])
+
+
+def caps_names(text: str) -> list[str]:
+    """Candidate holder names in a KYC note: runs of two or more UPPERCASE words, in order."""
+    out = []
+    for m in _CAPS_NAME.finditer(text):
+        toks = [t.strip(".-'’") for t in m.group(1).split()]
+        toks = [t for t in toks if t and t not in _NOT_NAME]
+        if len(toks) >= 2:
+            out.append(" ".join(toks))
+    return out
 
 
 def _same_where_both_give(a: D, b: D) -> bool:
@@ -321,10 +349,11 @@ LISTING_PHRASES = {
 }
 DEFAULT_PHRASE = "named on a watchlist"
 
-# A number followed by a month ("As at 19 November 2025", "3rd March") is the day of a date, not an age.
+# After a weak trigger (at, then, was, a comma), a number followed by a month ("As at 19 November 2025",
+# "3rd March") is the day of a date, not an age. Explicit "age 33 May 2019" is an age then a date.
 _NOT_DAY = r"(?!\s*(?:st|nd|rd|th)?\.?\s*(?:of\s+)?(?i:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b)"
 _AGE = re.compile(
-    r"\b(?i:aged|age of|at age|age)\s*:?\s*(\d{1,3})" + _NOT_DAY + r"\b"
+    r"\b(?i:aged|age of|at age|age)\s*:?\s*(\d{1,3})\b"
     r"|\b(\d{1,3})[\s-]*(?:years?|yrs?)[\s-]*(?:of age|old)\b"
     r"|\b(?:reached|turned|turning)\s+(\d{1,3})" + _NOT_DAY + r"\b"
     r"|\b(?:then|at)\s+(\d{1,3})" + _NOT_DAY + r"\b(?![:.]\d)"
@@ -398,6 +427,8 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
     if person_hit:  # inclusive on purpose: an extra possible birth date can only block a DOB clear
         first = notes.strip().split("\n\n")[0] if notes.strip() else ""
         first = re.sub(r"\bD\.\s?O\.\s?B\.?", "DOB", first, flags=re.I)  # so the sentence split keeps it whole
+        # "b. 1973", "b. 17 Jul 1939", "b. 10-Apr-1960": lowercase b. before a date means born
+        first = re.sub(r"(?<![A-Za-z])b\.\s*(?=\d|(?i:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))", "born ", first)
         for sent in re.split(r"(?<=[.!?])\s+", first):
             m = _HIT_BIRTH.search(sent)
             if m:

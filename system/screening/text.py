@@ -363,14 +363,33 @@ def country(value: str) -> str | None:
     return found[0] if found else None
 
 
-def countries_in(text: str) -> list[str]:
-    """Countries mentioned in free text (names and demonyms), in order of appearance."""
+def countries_in(text: str, codes: bool = False) -> list[str]:
+    """Countries mentioned in free text (names and demonyms), in order of appearance.
+    codes=True also reads standalone UPPERCASE ISO codes ("res NG", "RUS nat ID"); use it only where an
+    extra country can only block a clear (customer notes), since words like "IT" or "AM" would be misread."""
+    found = [(m.start(), _CANON[m.group(1)]) for m in _FREE_RX.finditer(fold(text))]
+    if codes:
+        for m in _CODE_RX.finditer(text or ""):
+            t = m.group(0)
+            if t in _CODE_STOP:
+                continue
+            c = _ALIASES.get(t) if len(t) == 2 else _ISO3.get(t)
+            if c:
+                found.append((m.start(), c))
     out = []
-    for m in _FREE_RX.finditer(fold(text)):
-        c = _CANON[m.group(1)]
+    for _, c in sorted(found, key=lambda x: x[0]):
         if c not in out:
             out.append(c)
     return out
+
+
+_CODE_RX = re.compile(r"(?<![A-Za-z0-9'\-])[A-Z]{2,3}(?![A-Za-z0-9'\-])")
+# Uppercase tokens that are far more often words or abbreviations than country codes.
+_CODE_STOP = {"OK", "ID", "IT", "IN", "NO", "TO", "AM", "BE", "ME", "IS", "OR", "ON", "AS", "AT", "AN", "GO", "DO",
+              "SO", "UP", "HI", "MY", "PM", "TV", "PR", "CV", "ST", "NA", "MD", "DR", "MR", "MS",
+              "AND", "ARE", "CAN", "PER", "BEN", "DOM", "MAR", "TON", "GIN", "COM", "CUB", "GUM", "PAN", "TUN",
+              "NIC", "LIE", "MAC", "SUR", "NOR", "KYC", "DOB", "AML", "PEP", "NIN", "BVN", "SSN", "IDV", "VAT",
+              "TIN", "ATM", "API", "APP", "FAQ"}
 
 
 # ---------------------------------------------------------------- names (principle 8)

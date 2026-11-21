@@ -320,6 +320,56 @@ class SlashDates(unittest.TestCase):
         self.assertNotEqual(decide(person(dob="01/12/2007"), h, ALERT, NR).code, "TEMPORAL_IMPOSSIBILITY")
 
 
+def _profile(note_text, full_name, channel="kyc"):
+    from screening.facts import CustomerResolver
+
+    class _S:
+        applicants_by_customer, kyc_by_applicant = {}, {}
+        customers = {"CUS-1": {"record_id": "CUS-1", "full_name": full_name, "email": "x@y.z",
+                               "entity_type": "Individual", "dob": "1983-08-24", "residence_country": "UA"}}
+        notes_by_email = {"x@y.z": [{"note_id": "NOTE-1", "channel": channel, "created_at": "2024-11-23",
+                                     "text": note_text}]}
+    return CustomerResolver(_S(), NR).profile(["CUS-1"], {"customer_name": full_name})
+
+
+class TerseWording(unittest.TestCase):
+    """Stage 3 audit (terse rewording) fixes 2a-2d."""
+
+    def test_2a_holder_is_the_caps_name_that_is_the_customer(self):
+        p = _profile("Onfido IDV OK for OLEKSII VOLODYMYROVYCH HRYHORIEV 2024-11-23; nat ID accepted DOB 1975-06-04",
+                     "Oleksii Hryhoriev")
+        self.assertEqual(p.verified_name.value, "OLEKSII VOLODYMYROVYCH HRYHORIEV")
+        self.assertEqual(p.dob.value.text(), "1975-06-04")
+        self.assertEqual(p.dob.sources, ("NOTE-1",))
+
+    def test_2a_customer_named_but_no_clean_holder_keeps_note_without_a_name(self):
+        p = _profile("IDV OK; Oleksii confirmed, DOB 1975-06-04", "Oleksii Hryhoriev")
+        self.assertIsNone(p.verified_name)  # an unknown name can neither clear nor confirm
+        self.assertEqual(p.dob.value.text(), "1975-06-04")
+
+    def test_2b_uppercase_codes_in_notes_are_countries(self):
+        p = _profile("acct holder res+prof pos NG 2013-2023", "Oleksii Hryhoriev", channel="support")
+        self.assertIn("Nigeria", [c.value for c in p.countries])
+        p = _profile("Customer says OK, IT team to call back. AM shift.", "Oleksii Hryhoriev", channel="support")
+        self.assertEqual(sorted({c.value for c in p.countries}), ["Ukraine"])
+
+    def test_2b_wider_residence_guard(self):
+        p = _profile("domiciled in Lagos since 2015", "Oleksii Hryhoriev", channel="support")
+        self.assertTrue(p.unread_locations)
+
+    def test_2c_explicit_age_before_a_month_is_still_an_age(self):
+        from screening.facts import _age_in
+        self.assertEqual(_age_in("MARCOS ROBERTO COSTA age 33 May 2019 a politically exposed person Brazil"), 33)
+        self.assertEqual(_age_in("aged 52 March 2020"), 52)
+        self.assertIsNone(_age_in("As at 19 November 2025 the details were current."))
+
+    def test_2d_b_dot_is_born(self):
+        for text, years in [("Ahmed Khan b. 1973, listed by OFAC.", (1973,)),
+                            ("Ahmed Khan (b. 17 Jul 1939) was listed.", (1939,)),
+                            ("Ahmed Khan, b. 10-Apr-1960.", (1960,))]:
+            self.assertEqual([d.value.years for d in _hp(text).dobs], [years], text)
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)
