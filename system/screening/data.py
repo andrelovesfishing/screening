@@ -223,8 +223,8 @@ class Store:
             d = parse_date(c.get("dob", ""))
             if phone_key(c.get("phone")) and d and d.month and d.day:
                 self.cust_by_phone_dob[(phone_key(c["phone"]), d)].append(c["record_id"])
-            if d:
-                self.cust_by_year[d.year].append(c["record_id"])
+            # no readable DOB: bucket None, so a search by screened DOB still finds it (unknown stays unknown)
+            self.cust_by_year[d.year if d else None].append(c["record_id"])
             for field in ("full_name", "preferred_name", "login_name"):
                 for p in fold(c.get(field) or "").split():
                     if len(p) >= 2:

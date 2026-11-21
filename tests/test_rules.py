@@ -417,6 +417,39 @@ class NegativeKycNotes(unittest.TestCase):
         self.assertEqual(decide(person(dob="1950-01-01"), hit(), ALERT, NR).code, "DOB_MISMATCH")
 
 
+class UnlinkedSearch(unittest.TestCase):
+    """Gap 3, principle 2 + "unknown stays unknown": without a link, a record that leaves a screened
+    detail blank still fits on it (a blank DOB, country or city is not a mismatch)."""
+
+    def _resolver(self, **rec):
+        from screening.facts import CustomerResolver
+        base = {"record_id": "CUS-9", "full_name": "Amina Bello Okafor", "dob": "", "residence_country": "NG",
+                "nationality": "NG", "city": "Lagos", "address": "1 Marina Rd, Lagos", "entity_type": "Individual"}
+        base.update(rec)
+
+        class _S:
+            customers = {"CUS-9": base}
+            cust_by_year = {None: ["CUS-9"]}
+            cust_by_part = {}
+        return CustomerResolver(_S(), NR)
+
+    ALERT = {"customer_name": "Amina Okafor", "dob": "1980-05-02", "country": "Nigeria", "city": "Lagos",
+             "entity_type": "Individual"}
+
+    def test_record_without_dob_is_found(self):
+        self.assertEqual(self._resolver().search(self.ALERT), ["CUS-9"])
+
+    def test_blank_country_or_city_is_not_a_mismatch(self):
+        r = self._resolver(dob="1980", residence_country="", nationality="", city="", address="")
+        self.assertTrue(r.fits(r.s.customers["CUS-9"], self.ALERT))
+
+    def test_a_different_country_or_city_still_rules_out(self):
+        r = self._resolver(residence_country="GH", nationality="GH")
+        self.assertFalse(r.fits(r.s.customers["CUS-9"], self.ALERT))
+        r = self._resolver(city="Abuja", address="2 Wuse St, Abuja")
+        self.assertFalse(r.fits(r.s.customers["CUS-9"], self.ALERT))
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)

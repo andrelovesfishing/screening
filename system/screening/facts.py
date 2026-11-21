@@ -95,11 +95,12 @@ class CustomerResolver:
             return False
         ac = country(alert.get("country", "")) if alert.get("country") else None
         if ac:
-            rc = {country(rec.get("residence_country", "")), country(rec.get("nationality", ""))}
-            if ac not in rc:
+            rc = {country(rec.get("residence_country", "")), country(rec.get("nationality", ""))} - {None, ""}
+            if rc and ac not in rc:  # a record with no readable country is unknown there, not a mismatch
                 return False
         city = fold(alert.get("city", ""))
-        if city and city not in fold(rec.get("city", "")) and city not in fold(rec.get("address", "")):
+        rcity, raddr = fold(rec.get("city", "")), fold(rec.get("address", ""))
+        if city and (rcity or raddr) and city not in rcity and city not in raddr:
             return False
         return True
 
@@ -118,7 +119,7 @@ class CustomerResolver:
     def search(self, alert: dict) -> list[str]:
         ad = parse_date(alert.get("dob", ""))
         if ad:
-            pool = set(self.s.cust_by_year.get(ad.year, []))
+            pool = set(self.s.cust_by_year.get(ad.year, [])) | set(self.s.cust_by_year.get(None, []))
         else:
             pool = set()
             for p in self.nr.parts(alert.get("customer_name") or "", is_company(alert.get("entity_type"))):
