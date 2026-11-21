@@ -77,6 +77,41 @@ class Countries(unittest.TestCase):
         self.assertEqual(countries_in("We can help in the per diem case"), [])
 
 
+class SilentGuards(unittest.TestCase):
+    """Guards fire 0 times on dev; each stops a clear that rests on something we could not read."""
+
+    def test_unread_customer_location_blocks_location_clear(self):
+        p = person()
+        p.unread_locations = ["NOTE-1 mentions where they live but names no country we read"]
+        o = decide(p, hit(dobs=(), countries=("Pakistan",)), ALERT, NR)
+        self.assertEqual(o.decision, "REVIEW")
+        self.assertIn("could not be read", o.reason)
+
+    def test_unread_hit_dob_blocks_dob_clear(self):
+        h = hit(dobs=("1950",))
+        self.assertEqual(decide(person(), h, ALERT, NR).code, "DOB_MISMATCH")
+        h.unread_dobs = ["dobs value 'circa fifties' not read"]
+        self.assertNotEqual(decide(person(), h, ALERT, NR).decision, "DIFFERENT_ENTITY")
+
+    def test_unknown_entity_type_does_not_clear_on_type(self):
+        h = hit()
+        h.entity_type = "vessel"
+        self.assertNotEqual(decide(person(), h, ALERT, NR).code, "ENTITY_TYPE_MISMATCH")
+
+    def test_address_names_its_country_anywhere(self):
+        from screening.facts import hit_profile
+
+        class _S:
+            search_by_query = {}
+        hp = hit_profile(_S(), {"hit_id": "H-2", "entity_type": "Individual", "name": "A B",
+                                "addresses": ["Nigeria, Lagos"], "dobs": []})
+        self.assertEqual([c.value for c in hp.countries], ["Nigeria"])
+        hp = hit_profile(_S(), {"hit_id": "H-3", "entity_type": "Individual", "name": "A B",
+                                "addresses": ["12 Marina Road, Lagos"], "dobs": []})
+        self.assertEqual(hp.countries, [])
+        self.assertEqual(hp.unparsed_countries, ["12 Marina Road, Lagos"])
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)

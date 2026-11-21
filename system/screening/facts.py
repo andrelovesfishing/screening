@@ -30,6 +30,9 @@ class Person:
     verified_name: Fact | None = None
     dob: Fact | None = None  # D
     countries: list[Fact] = field(default_factory=list)  # each value a country
+    # Silent guards: customer locations we saw but could not read. Each blocks a LOCATION clear,
+    # because the unread place might be the shared country. Expected to be empty on dev.
+    unread_locations: list[str] = field(default_factory=list)
     trace: list[str] = field(default_factory=list)
 
 
@@ -45,11 +48,23 @@ class HitProfile:
     earliest_report: Fact | None
     listing_phrase: str
     unparsed_countries: list[str] = field(default_factory=list)  # location values we could not read
+    # Silent guard: birth-date text we saw but could not read. Blocks a DOB clear (the unread date might agree).
+    unread_dobs: list[str] = field(default_factory=list)
     trace: list[str] = field(default_factory=list)
 
 
+_COMPANY_TYPES = {"company", "organisation", "organization", "entity", "business", "corporation", "corporate",
+                  "legal entity", "legal person", "firm", "partnership", "trust", "fund", "llc"}
+_PERSON_TYPES = {"individual", "person", "natural person", "private individual", "human"}
+
+
 def is_company(t: str) -> bool:
-    return (t or "").strip().lower() in {"company", "organisation", "organization", "entity", "business"}
+    return (t or "").strip().lower() in _COMPANY_TYPES
+
+
+def known_type(t: str) -> bool:
+    """Silent guard: only a recognised type can clear on ENTITY_TYPE_MISMATCH."""
+    return (t or "").strip().lower() in _COMPANY_TYPES | _PERSON_TYPES
 
 
 # ============================================================== customer side
@@ -161,17 +176,23 @@ class CustomerResolver:
                     if k.get("result") == "approved":
                         checks.append((parse_date(k.get("checked_at", "")), k.get("verified_name", ""),
                                        parse_date(k.get("verified_dob", "")), country(k.get("document_country", "")),
-                                       k["check_id"]))
+                                       k["check_id"], (k.get("document_country") or "").strip()))
         emails = _uniq([(c.get("email") or "").lower() for c in recs if c.get("email")])
         lived = []
         for e in emails:
             for n in self.s.notes_by_email.get(e, []):
                 if (n.get("channel") or "").lower() == "kyc":
-                    checks.append(parse_kyc_note(n))
+                    checks.append(parse_kyc_note(n) + ("",))
                 else:  # inclusive on purpose: a country we miss could cause an unsafe LOCATION clear
-                    for c in countries_in(n.get("text", "")):
+                    found = countries_in(n.get("text", ""))
+                    for c in found:
                         lived.append(Fact(c, (n["note_id"],)))
-        checks = [c for c in checks if c[0]]
+                    if not found and _RESIDENCE.search(n.get("text", "")):
+                        p.unread_locations.append(f"{n['note_id']} mentions where they live but names no country we read")
+        for c in checks:
+            if c[0] and c[5] and not c[3]:
+                p.unread_locations.append(f"{c[4]} document country {c[5]!r} not read")
+        checks = [c[:5] for c in checks if c[0]]
         if checks:
             latest = max(checks, key=lambda c: (c[0].earliest_ordinal(), c[4]))
             _, vname, vdob, vctry, src = latest
@@ -198,6 +219,8 @@ class CustomerResolver:
                 cc = country(c.get(f, ""))
                 if cc:
                     p.countries.append(Fact(cc, (c["record_id"],)))
+                elif (c.get(f) or "").strip() and fold(c[f]) not in NOT_COUNTRIES:
+                    p.unread_locations.append(f"{c['record_id']} {f} {c[f]!r} not read")
         p.countries += lived
         return p
 
@@ -221,6 +244,8 @@ _LIVED = re.compile(r"\b(lived|living|live|resid\w*|reside\w*|work\w*|employ\w*|
 _CAPS_NAME = re.compile(r"\b([A-Z][A-Z'\-\.]+(?:\s+[A-Z][A-Z'\-\.]+)+)\b")
 
 
+_RESIDENCE = re.compile(r"\b(lived|lives|living|live in|moved|relocat\w*|resid\w*|grew up|based in|originally from|"
+                        r"hometown|citizen\w*|national of|emigrat\w*|immigrat\w*|home country|born in)\b", re.I)
 _NOT_NAME = {"DOB", "ID", "KYC", "UK", "USA", "US", "EU", "NIN", "BVN", "SSN", "PEP", "N/A", "NA", "AML"}
 _BIRTH_KW = re.compile(r"\b(born|dob|d\.o\.b|birth|birthdate)\b", re.I)
 
@@ -326,15 +351,20 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
     for f in ("countries", "nationality", "citizenship", "addresses", "place_of_birth"):
         for v in as_list(hit.get(f)):
             c = country(v)
-            if c and all(c != x.value for x in countries):
-                countries.append(Fact(c, (hid,)))
-            elif not c and f != "addresses":
+            # an address may name its country anywhere ("Nigeria, Lagos"): inclusive, every country in it counts
+            found = [c] if c else (countries_in(v) if f == "addresses" else [])
+            for c in found:
+                if all(c != x.value for x in countries):
+                    countries.append(Fact(c, (hid,)))
+            if not found:
                 last = fold(v.split(",")[-1])
                 if last and last not in NOT_COUNTRIES:
                     unparsed.append(v)
 
     trace = []
-    dobs = [Fact(d, (hid,)) for d in (parse_date(v) for v in as_list(hit.get("dobs"))) if d]
+    raw_dobs = [v for v in as_list(hit.get("dobs")) if v.strip()]
+    dobs = [Fact(d, (hid,)) for d in (parse_date(v) for v in raw_dobs) if d]
+    unread_dobs = [f"dobs value {v!r} not read" for v in raw_dobs if not parse_date(v)]
     origin = "dobs field" if dobs else ""
     notes = hit.get("profile_notes") or ""
     n_field = len(dobs)
@@ -347,6 +377,8 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
                 if d:
                     dobs.append(Fact(d, (hid,)))
                     break
+                if re.search(r"\b(on|in)\b|\d", after[:40]) and not re.match(r"\s*(in|at)\s+[A-Z]", after):
+                    unread_dobs.append(f"profile notes say born but give no date we read: {sent.strip()[:80]!r}")
             age = _age_in(sent)
             at = _dated(sent) if age else None
             if age and at:
@@ -387,4 +419,4 @@ def hit_profile(store: Store, hit: dict) -> HitProfile:
 
     return HitProfile(hit_id=hid, entity_type=hit.get("entity_type", ""), names=names, dobs=dobs,
                       dob_origin=origin, countries=countries, deceased=deceased, earliest_report=earliest,
-                      listing_phrase=phrase, unparsed_countries=unparsed, trace=trace)
+                      listing_phrase=phrase, unparsed_countries=unparsed, unread_dobs=unread_dobs, trace=trace)

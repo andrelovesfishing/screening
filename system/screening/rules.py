@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .facts import Fact, HitProfile, Person, is_company
+from .facts import Fact, HitProfile, Person, is_company, known_type
 from .text import D, NameRules, parse_date
 
 
@@ -130,6 +130,8 @@ def _dob_status(x: Ctx) -> str:
     if not x.h.dobs:
         return f"the hit gives no {label}"
     hs = ", ".join(h.value.text() for h in x.h.dobs)
+    if x.h.unread_dobs:
+        return f"the {plural} do not agree ({x.p.dob.value.text()} against {hs}), but some of the hit's birth-date text could not be read, so this cannot clear the hit"
     if all(dob_contradicted(x.p.dob.value, h.value) for h in x.h.dobs):
         return f"the {plural} also differ ({x.p.dob.value.text()} against {hs})"
     return f"the {plural} neither agree nor contradict ({x.p.dob.value.text()} against {hs})"
@@ -146,6 +148,8 @@ def _country_status(x: Ctx) -> str:
     hc = ", ".join(sorted({c.value for c in x.h.countries}))
     if x.h.unparsed_countries:
         return f"no readable country is shared ({cc} against {hc}), and some of the hit's locations could not be read"
+    if x.p.unread_locations:
+        return f"no readable country is shared ({cc} against {hc}), but some of the customer's locations could not be read, so this cannot clear the hit"
     return f"no country is shared ({cc} against {hc})"
 
 
@@ -169,6 +173,8 @@ def _other(x: Ctx, *skip: str) -> str:
 
 
 def rule_type(x: Ctx):
+    if not known_type(x.h.entity_type) or not known_type(x.p.entity_type or x.alert.get("entity_type")):
+        return None  # silent guard: an unrecognised type is unknown, not "a person"
     if is_company(x.h.entity_type) != x.company:
         kind = lambda b: "a company" if b else "a person"
         return Outcome("DIFFERENT_ENTITY", "ENTITY_TYPE_MISMATCH", _src(x.records),
@@ -204,6 +210,8 @@ def rule_temporal(x: Ctx):
 def rule_dob(x: Ctx):
     if not x.p.dob or not x.h.dobs:
         return None
+    if x.h.unread_dobs:
+        return None  # silent guard: a birth date we could not read might be the agreeing one
     c = x.p.dob.value
     if all(dob_contradicted(c, h.value) for h in x.h.dobs):
         hs = ", ".join(h.value.text() for h in x.h.dobs)
@@ -231,8 +239,8 @@ def rule_location(x: Ctx):
         return None
     if x.name_match and x.dob_match:
         return None  # a country difference alone does not clear a name+DOB agreement -> REVIEW
-    if x.h.unparsed_countries:
-        return None  # a hit location we could not read might be the shared country: don't clear on it
+    if x.h.unparsed_countries or x.p.unread_locations:
+        return None  # a location we could not read (either side) might be the shared country: don't clear on it
     cc = sorted({c.value for c in x.p.countries})
     hc = sorted({c.value for c in x.h.countries})
     return Outcome("DIFFERENT_ENTITY", "LOCATION_MISMATCH", _src(*x.p.countries),
