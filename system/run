@@ -1,0 +1,5 @@
+#!/bin/sh
+# Usage: system/run <data folder> <output file>
+# Python 3 standard library only. Deterministic: same folder in, same bytes out.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$DIR/run.py" "$@"

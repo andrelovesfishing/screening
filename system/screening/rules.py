@@ -21,13 +21,13 @@ class Outcome:
     trace: list[str] = field(default_factory=list)
 
 
-def _src(*facts) -> list[str]:
+def _src(*facts, exclude: str = "") -> list[str]:
     out = []
     for f in facts:
         if f is None:
             continue
         for s in (f.sources if isinstance(f, Fact) else f):
-            if s and s not in out:
+            if s and s != exclude and s not in out:
                 out.append(s)
     return out
 
@@ -109,7 +109,7 @@ def rule_deceased(x: Ctx):
     d = x.h.deceased
     screened = parse_date(x.alert.get("screened_at", ""))
     if d and screened and d.value.latest_ordinal() < screened.earliest_ordinal():
-        return Outcome("DIFFERENT_ENTITY", "DECEASED", _src(x.records, d),
+        return Outcome("DIFFERENT_ENTITY", "DECEASED", _src(x.records),
                        f"The hit {x.h.names[0]} died in {d.value.text()}, before the customer was screened on {screened.text()}.")
 
 
@@ -119,11 +119,11 @@ def rule_temporal(x: Ctx):
         return None
     if x.company:
         if dob.value.earliest_ordinal() > r.value.latest_ordinal():
-            return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, r),
+            return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
                            f"The customer company was incorporated on {dob.value.text()}, after the hit's earliest dated report ({r.value.text()}).")
         return None
     if _plus_years(dob.value, 16) > r.value.latest_ordinal():
-        return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, r),
+        return Outcome("DIFFERENT_ENTITY", "TEMPORAL_IMPOSSIBILITY", _src(x.records, dob, exclude=x.h.hit_id),
                        f"The customer was born on {dob.value.text()} ({', '.join(dob.sources)}), so was younger than 16 at the hit's earliest dated report ({r.value.text()}).")
 
 
@@ -133,7 +133,7 @@ def rule_dob(x: Ctx):
     c = x.p.dob.value
     if all(dob_contradicted(c, h.value) for h in x.h.dobs):
         hs = ", ".join(h.value.text() for h in x.h.dobs)
-        return Outcome("DIFFERENT_ENTITY", "DOB_MISMATCH", _src(x.records, x.p.dob, *x.h.dobs),
+        return Outcome("DIFFERENT_ENTITY", "DOB_MISMATCH", _src(x.p.dob, *x.h.dobs, exclude=x.h.hit_id),
                        f"The customer's date of birth {c.text()} ({', '.join(x.p.dob.sources)}) contradicts every birth date the hit gives ({hs}, from its {x.h.dob_origin}).")
 
 
@@ -144,7 +144,7 @@ def rule_name(x: Ctx):
     if not x.company and len(x.nr.parts(v.value)) < 2:
         return None
     if not any(x.nr.agree(v.value, hn, x.company) for hn in x.h.names):
-        return Outcome("DIFFERENT_ENTITY", "NAME_MISMATCH_VERIFIED", _src(x.records, v),
+        return Outcome("DIFFERENT_ENTITY", "NAME_MISMATCH_VERIFIED", _src(v),
                        f"The customer's verified legal name {v.value} ({', '.join(v.sources)}) agrees with none of the hit's names ({'; '.join(x.h.names)}).")
 
 
@@ -155,7 +155,7 @@ def rule_location(x: Ctx):
         return None  # a country difference alone does not clear a name+DOB agreement -> REVIEW
     cc = sorted({c.value for c in x.p.countries})
     hc = sorted({c.value for c in x.h.countries})
-    return Outcome("DIFFERENT_ENTITY", "LOCATION_MISMATCH", _src(x.records, *x.p.countries),
+    return Outcome("DIFFERENT_ENTITY", "LOCATION_MISMATCH", _src(*x.p.countries),
                    f"Every country tied to the customer ({', '.join(cc)}) differs from every country tied to the hit ({', '.join(hc)}).")
 
 
@@ -169,13 +169,13 @@ def agreement(x: Ctx) -> Outcome:
     nm, dm, sc = x.name_match, x.dob_match, x.shared_countries
     if x.company:
         if nm and sc:
-            return Outcome("SAME_ENTITY", "NAME_LOCATION_MATCH", _src(x.records, nm[0], sc[0]),
+            return Outcome("SAME_ENTITY", "NAME_LOCATION_MATCH", _src(nm[0], *sc),
                            f"The customer's name {nm[0].value} agrees with the hit's name {nm[1]}, and both are linked to {sc[0].value}. Nothing contradicts them.")
     elif nm and dm:
         if sc:
-            return Outcome("SAME_ENTITY", "NAME_DOB_LOCATION_MATCH", _src(x.records, nm[0], x.p.dob, dm, sc[0]),
+            return Outcome("SAME_ENTITY", "NAME_DOB_LOCATION_MATCH", _src(nm[0], x.p.dob, dm, *sc, exclude=x.h.hit_id),
                            f"The customer's date of birth {x.p.dob.value.text()} ({', '.join(x.p.dob.sources)}) agrees with the hit's {dm.value.text()}. Both are linked to {sc[0].value}. The customer's name {nm[0].value} agrees with the hit's name {nm[1]}.")
-        return Outcome("SAME_ENTITY", "NAME_DOB_MATCH", _src(x.records, nm[0], x.p.dob, dm),
+        return Outcome("SAME_ENTITY", "NAME_DOB_MATCH", _src(nm[0], x.p.dob, dm, exclude=x.h.hit_id),
                        f"The customer's date of birth {x.p.dob.value.text()} ({', '.join(x.p.dob.sources)}) agrees with the hit's {dm.value.text()}, and the customer's name {nm[0].value} agrees with the hit's name {nm[1]}. Nothing contradicts them.")
     missing = []
     if not nm:
@@ -184,7 +184,8 @@ def agreement(x: Ctx) -> Outcome:
         missing.append("a date of birth to compare" if not (x.p.dob and x.h.dobs) else "date of birth agreement")
     if x.company and not sc:
         missing.append("a shared country")
-    return Outcome("REVIEW", "INSUFFICIENT_DATA", _src(x.records),
+    agreeing = _src(*sc, x.p.dob if dm else None, exclude=x.h.hit_id) or _src(nm[0] if nm else None) or _src(x.records)
+    return Outcome("REVIEW", "INSUFFICIENT_DATA", agreeing,
                    f"No fact contradicts the hit {x.h.names[0]}, but there is not enough to confirm it: missing {' and '.join(missing) or 'agreement'}.")
 
 

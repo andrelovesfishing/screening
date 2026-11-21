@@ -18,6 +18,8 @@ pred = {json.loads(l)["hit_id"]: json.loads(l) for l in open(out, encoding="utf-
 labels = Store(folder).labels
 
 n = dec_ok = code_ok = rec_ok = 0
+ev_exact = 0
+ev_j = 0.0
 worst = 0
 from collections import Counter
 conf = Counter()
@@ -33,10 +35,15 @@ for lab in labels:
     cok = ok and p["reason_code"] in codes
     recs = as_list(lab.get("customer_record_ids"))
     rok = (p["customer_record_id"] in recs) or (not recs and p["customer_record_id"] in (None, "AMBIGUOUS"))
+    ref_ev = set(as_list(lab.get('evidence'))); our_ev = set(p['evidence'])
+    ev_exact += ok and ref_ev == our_ev
+    ev_j += (len(ref_ev & our_ev) / len(ref_ev | our_ev)) if ok and (ref_ev | our_ev) else 0
+    if ok and ref_ev != our_ev:
+        print(f'  evidence diff {lab["hit_id"]} {p["reason_code"]}: missing {sorted(ref_ev-our_ev)} extra {sorted(our_ev-ref_ev)}')
     dec_ok += ok
     code_ok += cok
     rec_ok += rok
-    if lab["decision"] == "SAME_ENTITY" and p["decision"] == "DIFFERENT_ENTITY":
+    if lab["decision"] != "DIFFERENT_ENTITY" and p["decision"] == "DIFFERENT_ENTITY":
         worst += 1
     if not (ok and cok and rok):
         print(f"\n### {lab['hit_id']} want {lab['decision']} {codes} rec {recs} | got {p['decision']} {p['reason_code']} rec {p['customer_record_id']}")
@@ -47,5 +54,5 @@ for lab in labels:
             print("  TRACE:", json.dumps({k: t[k] for k in ("customer", "persons", "hit", "rules")}, ensure_ascii=False)[:1500])
 
 print(f"\n== {n} labels: decision {dec_ok}/{n}, decision+code {code_ok}/{n}, customer record {rec_ok}/{n}, "
-      f"WRONGFUL CLEARS (same->different) {worst}")
+      f"WRONGFUL CLEARS (same->different) {worst}, evidence exact {ev_exact}/{n}, evidence jaccard {ev_j/n:.2f}")
 print("confusion (truth, ours):", dict(conf))
