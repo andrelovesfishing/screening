@@ -53,6 +53,30 @@ class CountryDifference(unittest.TestCase):
         self.assertEqual((o.decision, o.code), ("DIFFERENT_ENTITY", "LOCATION_MISMATCH"))
 
 
+class Countries(unittest.TestCase):
+    # Principle 6: "Codes and nationalities are countries; territories count as their own country."
+    def test_every_iso_code_reads(self):
+        from screening.text import _ISO_ROWS, country
+        for a2, a3, name in _ISO_ROWS:
+            if a2 != "NA":  # "NA" is a placeholder far more often than Namibia
+                self.assertEqual(country(a2), name, a2)
+            self.assertEqual(country(a3), name, a3)
+
+    def test_codes_seen_unread_on_dev(self):
+        from screening.text import country
+        self.assertEqual([country(c) for c in ("RS", "PE", "RO", "CI", "ID")],
+                         ["Serbia", "Peru", "Romania", "Cote D'Ivoire", "Indonesia"])
+
+    def test_territories_are_their_own_country(self):
+        from screening.text import country
+        self.assertEqual(country("JE"), "Jersey")
+        self.assertEqual(country("Puerto Rico"), "Puerto Rico")
+
+    def test_codes_are_not_read_in_free_text(self):
+        from screening.text import countries_in
+        self.assertEqual(countries_in("We can help in the per diem case"), [])
+
+
 class ReasonText(unittest.TestCase):
     def test_review_reason_says_what_is_missing(self):
         o = decide(person(), hit(dobs=()), ALERT, NR)

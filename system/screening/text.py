@@ -162,8 +162,59 @@ Sri Lanka|Sudan|Suriname|Sweden|Switzerland|Syria|Taiwan|Tajikistan|Tanzania|Tha
 Trinidad and Tobago|Tunisia|Turkey|Turkmenistan|Tuvalu|Uganda|Ukraine|United Arab Emirates|United Kingdom|
 United States|Uruguay|Uzbekistan|Vanuatu|Vatican City|Venezuela|Vietnam|Yemen|Zambia|Zimbabwe|
 Hong Kong|Macao|Puerto Rico|Jersey|Guernsey|Isle of Man|Gibraltar|Bermuda|Cayman Islands|British Virgin Islands|
-Northern Mariana Islands|Guam|Greenland|Faroe Islands|Aruba|Curacao|New Caledonia|French Polynesia|Western Sahara
+Northern Mariana Islands|Guam|Greenland|Faroe Islands|Aruba|Curacao|New Caledonia|French Polynesia|Western Sahara|
+Anguilla|Montserrat|Turks and Caicos Islands|US Virgin Islands|American Samoa|Cook Islands|Falkland Islands|
+French Guiana|Guadeloupe|Martinique|Reunion|Mayotte|Saint Pierre and Miquelon|Saint Helena|Wallis and Futuna|Niue|
+Tokelau|Norfolk Island|Christmas Island|Cocos Islands|Pitcairn|Svalbard and Jan Mayen|Aland Islands|
+Saint Barthelemy|Saint Martin|Sint Maarten|Bonaire|Antarctica|Bouvet Island|South Georgia|Heard Island|
+British Indian Ocean Territory|French Southern Territories|US Minor Outlying Islands
 """
+
+# ISO 3166-1, complete, so an unseen code is never silently dropped (a dropped country can cause an
+# unsafe LOCATION clear). Matched only as whole field values: free-text "in", "can", "per" are words.
+_ISO_TABLE = """
+AD AND Andorra|AE ARE United Arab Emirates|AF AFG Afghanistan|AG ATG Antigua and Barbuda|AI AIA Anguilla|
+AL ALB Albania|AM ARM Armenia|AO AGO Angola|AQ ATA Antarctica|AR ARG Argentina|AS ASM American Samoa|AT AUT Austria|
+AU AUS Australia|AW ABW Aruba|AX ALA Aland Islands|AZ AZE Azerbaijan|BA BIH Bosnia and Herzegovina|BB BRB Barbados|
+BD BGD Bangladesh|BE BEL Belgium|BF BFA Burkina Faso|BG BGR Bulgaria|BH BHR Bahrain|BI BDI Burundi|BJ BEN Benin|
+BL BLM Saint Barthelemy|BM BMU Bermuda|BN BRN Brunei|BO BOL Bolivia|BQ BES Bonaire|BR BRA Brazil|BS BHS Bahamas|
+BT BTN Bhutan|BV BVT Bouvet Island|BW BWA Botswana|BY BLR Belarus|BZ BLZ Belize|CA CAN Canada|CC CCK Cocos Islands|
+CD COD Democratic Republic of the Congo|CF CAF Central African Republic|CG COG Congo|CH CHE Switzerland|
+CI CIV Cote D'Ivoire|CK COK Cook Islands|CL CHL Chile|CM CMR Cameroon|CN CHN China|CO COL Colombia|CR CRI Costa Rica|
+CU CUB Cuba|CV CPV Cape Verde|CW CUW Curacao|CX CXR Christmas Island|CY CYP Cyprus|CZ CZE Czech Republic|
+DE DEU Germany|DJ DJI Djibouti|DK DNK Denmark|DM DMA Dominica|DO DOM Dominican Republic|DZ DZA Algeria|
+EC ECU Ecuador|EE EST Estonia|EG EGY Egypt|EH ESH Western Sahara|ER ERI Eritrea|ES ESP Spain|ET ETH Ethiopia|
+FI FIN Finland|FJ FJI Fiji|FK FLK Falkland Islands|FM FSM Micronesia|FO FRO Faroe Islands|FR FRA France|GA GAB Gabon|
+GB GBR United Kingdom|GD GRD Grenada|GE GEO Georgia|GF GUF French Guiana|GG GGY Guernsey|GH GHA Ghana|
+GI GIB Gibraltar|GL GRL Greenland|GM GMB Gambia|GN GIN Guinea|GP GLP Guadeloupe|GQ GNQ Equatorial Guinea|
+GR GRC Greece|GS SGS South Georgia|GT GTM Guatemala|GU GUM Guam|GW GNB Guinea-Bissau|GY GUY Guyana|HK HKG Hong Kong|
+HM HMD Heard Island|HN HND Honduras|HR HRV Croatia|HT HTI Haiti|HU HUN Hungary|ID IDN Indonesia|IE IRL Ireland|
+IL ISR Israel|IM IMN Isle of Man|IN IND India|IO IOT British Indian Ocean Territory|IQ IRQ Iraq|IR IRN Iran|
+IS ISL Iceland|IT ITA Italy|JE JEY Jersey|JM JAM Jamaica|JO JOR Jordan|JP JPN Japan|KE KEN Kenya|KG KGZ Kyrgyzstan|
+KH KHM Cambodia|KI KIR Kiribati|KM COM Comoros|KN KNA Saint Kitts and Nevis|KP PRK North Korea|KR KOR South Korea|
+KW KWT Kuwait|KY CYM Cayman Islands|KZ KAZ Kazakhstan|LA LAO Laos|LB LBN Lebanon|LC LCA Saint Lucia|
+LI LIE Liechtenstein|LK LKA Sri Lanka|LR LBR Liberia|LS LSO Lesotho|LT LTU Lithuania|LU LUX Luxembourg|LV LVA Latvia|
+LY LBY Libya|MA MAR Morocco|MC MCO Monaco|MD MDA Moldova|ME MNE Montenegro|MF MAF Saint Martin|MG MDG Madagascar|
+MH MHL Marshall Islands|MK MKD North Macedonia|ML MLI Mali|MM MMR Myanmar|MN MNG Mongolia|MO MAC Macao|
+MP MNP Northern Mariana Islands|MQ MTQ Martinique|MR MRT Mauritania|MS MSR Montserrat|MT MLT Malta|MU MUS Mauritius|
+MV MDV Maldives|MW MWI Malawi|MX MEX Mexico|MY MYS Malaysia|MZ MOZ Mozambique|NA NAM Namibia|NC NCL New Caledonia|
+NE NER Niger|NF NFK Norfolk Island|NG NGA Nigeria|NI NIC Nicaragua|NL NLD Netherlands|NO NOR Norway|NP NPL Nepal|
+NR NRU Nauru|NU NIU Niue|NZ NZL New Zealand|OM OMN Oman|PA PAN Panama|PE PER Peru|PF PYF French Polynesia|
+PG PNG Papua New Guinea|PH PHL Philippines|PK PAK Pakistan|PL POL Poland|PM SPM Saint Pierre and Miquelon|
+PN PCN Pitcairn|PR PRI Puerto Rico|PS PSE Palestine|PT PRT Portugal|PW PLW Palau|PY PRY Paraguay|QA QAT Qatar|
+RE REU Reunion|RO ROU Romania|RS SRB Serbia|RU RUS Russia|RW RWA Rwanda|SA SAU Saudi Arabia|SB SLB Solomon Islands|
+SC SYC Seychelles|SD SDN Sudan|SE SWE Sweden|SG SGP Singapore|SH SHN Saint Helena|SI SVN Slovenia|
+SJ SJM Svalbard and Jan Mayen|SK SVK Slovakia|SL SLE Sierra Leone|SM SMR San Marino|SN SEN Senegal|SO SOM Somalia|
+SR SUR Suriname|SS SSD South Sudan|ST STP Sao Tome and Principe|SV SLV El Salvador|SX SXM Sint Maarten|SY SYR Syria|
+SZ SWZ Eswatini|TC TCA Turks and Caicos Islands|TD TCD Chad|TF ATF French Southern Territories|TG TGO Togo|
+TH THA Thailand|TJ TJK Tajikistan|TK TKL Tokelau|TL TLS Timor-Leste|TM TKM Turkmenistan|TN TUN Tunisia|TO TON Tonga|
+TR TUR Turkey|TT TTO Trinidad and Tobago|TV TUV Tuvalu|TW TWN Taiwan|TZ TZA Tanzania|UA UKR Ukraine|UG UGA Uganda|
+UM UMI US Minor Outlying Islands|US USA United States|UY URY Uruguay|UZ UZB Uzbekistan|VA VAT Vatican City|
+VC VCT Saint Vincent and the Grenadines|VE VEN Venezuela|VG VGB British Virgin Islands|VI VIR US Virgin Islands|
+VN VNM Vietnam|VU VUT Vanuatu|WF WLF Wallis and Futuna|WS WSM Samoa|XK XKX Kosovo|YE YEM Yemen|YT MYT Mayotte|
+ZA ZAF South Africa|ZM ZMB Zambia|ZW ZWE Zimbabwe
+"""
+_ISO_ROWS = [r.strip().split(" ", 2) for r in _ISO_TABLE.replace("\n", "").split("|") if r.strip()]
 COUNTRIES = [c.strip() for c in _COUNTRY_NAMES.replace("\n", "").split("|") if c.strip()]
 
 _ALIASES = {
@@ -215,7 +266,38 @@ _ALIASES = {
     "Trinidadian": "Trinidad and Tobago", "Sierra Leonean": "Sierra Leone", "Liberian": "Liberia", "Malian": "Mali",
     "Nigerien": "Niger", "Bahraini": "Bahrain", "Qatari": "Qatar", "Kuwaiti": "Kuwait", "Omani": "Oman",
     "Yemeni": "Yemen", "Libyan": "Libya", "Tunisian": "Tunisia", "Algerian": "Algeria", "Taiwanese": "Taiwan",
+    "Rwandan": "Rwanda", "Zambian": "Zambia", "Malawian": "Malawi", "Namibian": "Namibia", "Motswana": "Botswana",
+    "Batswana": "Botswana", "Angolan": "Angola", "Mozambican": "Mozambique", "Ivorian": "Cote D'Ivoire",
+    "Burkinabe": "Burkina Faso", "Beninese": "Benin", "Togolese": "Togo", "Gambian": "Gambia", "Mauritian": "Mauritius",
+    "Malagasy": "Madagascar", "Bolivian": "Bolivia", "Salvadoran": "El Salvador", "Honduran": "Honduras",
+    "Belizean": "Belize", "Bahamian": "Bahamas", "Barbadian": "Barbados", "Bajan": "Barbados", "Guyanese": "Guyana",
+    "Surinamese": "Suriname", "Kyrgyz": "Kyrgyzstan", "Tajik": "Tajikistan", "Turkmen": "Turkmenistan",
+    "Mongolian": "Mongolia", "Burmese": "Myanmar", "Cambodian": "Cambodia", "Laotian": "Laos", "Bruneian": "Brunei",
+    "Bhutanese": "Bhutan", "Maldivian": "Maldives", "Fijian": "Fiji", "Samoan": "Samoa", "Tongan": "Tonga",
+    "Macedonian": "North Macedonia", "Andorran": "Andorra", "Monegasque": "Monaco", "Palestinian": "Palestine",
+    "Hongkonger": "Hong Kong", "Chadian": "Chad", "Gabonese": "Gabon", "Djiboutian": "Djibouti", "Burundian": "Burundi",
+    "Mauritanian": "Mauritania", "South Sudanese": "South Sudan", "Liechtensteiner": "Liechtenstein",
+    "Grenadian": "Grenada", "Vincentian": "Saint Vincent and the Grenadines", "Kittitian": "Saint Kitts and Nevis",
+    "Antiguan": "Antigua and Barbuda", "Bermudian": "Bermuda", "Gibraltarian": "Gibraltar", "Manx": "Isle of Man",
+    "Greenlandic": "Greenland", "Faroese": "Faroe Islands", "Kiribati": "Kiribati", "Ni-Vanuatu": "Vanuatu",
+    "Solomon Islander": "Solomon Islands", "Papua New Guinean": "Papua New Guinea", "Timorese": "Timor-Leste",
+    "Sahrawi": "Western Sahara", "Sao Tomean": "Sao Tome and Principe", "Cape Verdean": "Cape Verde",
+    "Equatoguinean": "Equatorial Guinea", "Bissau-Guinean": "Guinea-Bissau", "Comoran": "Comoros",
+    "Seychellois": "Seychelles", "Swazi": "Eswatini", "Basotho": "Lesotho", "Eritrean": "Eritrea",
+    "Emirian": "United Arab Emirates", "Kazakhstani": "Kazakhstan", "Uzbekistani": "Uzbekistan",
+    "Republic of Serbia": "Serbia", "Republic of Moldova": "Moldova", "Lao PDR": "Laos",
+    "Brunei Darussalam": "Brunei", "Cabo Verde": "Cape Verde", "Timor Leste": "Timor-Leste", "East Timor": "Timor-Leste",
+    "Republic of the Congo": "Congo", "Congo-Brazzaville": "Congo", "Congo-Kinshasa": "Democratic Republic of the Congo",
+    "DR Congo": "Democratic Republic of the Congo", "Vatican": "Vatican City", "Holy See": "Vatican City",
+    "Federated States of Micronesia": "Micronesia", "Korea, Democratic People's Republic of": "North Korea",
+    "Democratic People's Republic of Korea": "North Korea", "Tanzania, United Republic of": "Tanzania",
+    "United Republic of Tanzania": "Tanzania", "Bolivia, Plurinational State of": "Bolivia",
+    "Venezuela, Bolivarian Republic of": "Venezuela", "Moldova, Republic of": "Moldova",
+    "Taiwan, Province of China": "Taiwan", "Curaçao": "Curacao", "Réunion": "Reunion", "Åland Islands": "Aland Islands",
+    "Saint Barthélemy": "Saint Barthelemy", "U.K.": "United Kingdom", "KSA": "Saudi Arabia",
 }
+for _a2, _a3, _name in _ISO_ROWS:
+    _ALIASES.setdefault(_a2, _name)
 _ISO3 = {
     "USA": "United States", "GBR": "United Kingdom", "NGA": "Nigeria", "DEU": "Germany", "ESP": "Spain",
     "FRA": "France", "ITA": "Italy", "BGD": "Bangladesh", "IRL": "Ireland", "POL": "Poland", "IND": "India",
@@ -234,6 +316,8 @@ _ISO3 = {
     "CIV": "Cote D'Ivoire", "LUX": "Luxembourg", "ISL": "Iceland", "EST": "Estonia", "LVA": "Latvia",
     "LTU": "Lithuania", "ALB": "Albania", "QAT": "Qatar", "KWT": "Kuwait", "BHR": "Bahrain", "OMN": "Oman",
 }
+for _a2, _a3, _name in _ISO_ROWS:
+    _ISO3.setdefault(_a3, _name)
 NOT_COUNTRIES = {"international", "europe", "global", "worldwide", "africa", "asia", "unknown", "n a", "na"}
 
 _CANON = {fold(c): c for c in COUNTRIES}
