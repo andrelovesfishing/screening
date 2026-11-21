@@ -106,7 +106,9 @@ def main(argv=None):
         heads = [(i, t[:MAX_CHARS]) for i, t in texts]
         user = "\n\n".join(f"[TEXT {i}]\n{t}" for i, t in heads)
         ans = grok.ask(SYSTEM, user, SCHEMA)
-        got = {r["id"]: r["text"] for r in ans["rewrites"]}
+        # Grok sometimes drops the "note:"/"hit:"/"sr:" prefix of an id: match on the bare id too.
+        bare = {i.split(":", 1)[1]: i for i, _ in texts}
+        got = {bare.get(r["id"].strip(), r["id"].strip()): r["text"] for r in ans["rewrites"]}
         return {i: got[i] + t[MAX_CHARS:] for i, t in texts if got.get(i, "").strip()}
 
     res = grok.map(reword, jobs, workers=a.workers)
@@ -117,6 +119,17 @@ def main(argv=None):
             errors.append((hid, r[1]))
         else:
             new_text.update(r)
+    # Grok skips texts in large batches: ask again for the missing ones, 4 at a time.
+    missing = [(hid, [(i, t) for i, t in texts if i not in new_text]) for hid, texts in jobs]
+    retry = [(hid, m[k:k + 4]) for hid, m in missing for k in range(0, len(m), 4) if m]
+    if retry:
+        print(f"second pass: {sum(len(t) for _, t in retry)} skipped texts in {len(retry)} calls", file=sys.stderr)
+        for (hid, _), r in zip(retry, grok.map(reword, retry, workers=a.workers)):
+            if isinstance(r, tuple) and r and r[0] == "ERROR":
+                errors.append((hid, r[1]))
+            else:
+                new_text.update(r)
+        print(grok.summary(), file=sys.stderr)
 
     # ---- reworded copy of the data folder (raw JSON lines, only the free-text fields change)
     rdir = os.path.join(out_dir, "reworded")
