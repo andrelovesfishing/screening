@@ -274,7 +274,8 @@ def main(argv=None):
                 ev.append(f"earliest report {h0['earliest_report']} -> {h1['earliest_report']}")
             for p0, p1 in zip(b0["persons"], b1["persons"]):
                 c["customer dob: read"] += bool(p0["dob"])
-                if p0["dob"] != p1["dob"]:
+                # an ambiguous date ("X (or Y if read month-first)") reworded unambiguously as X or Y is no change
+                if p0["dob"] != p1["dob"] and not (p1["dob"] and "(or " in (p0["dob"] or "") and p1["dob"] in p0["dob"]):
                     c["customer dob: changed"] += 1
                     ev.append(f"customer dob {p0['dob']} -> {p1['dob']} ({p0['facts'][:1]})")
                 x, y = set(p0["countries"]), set(p1["countries"])
